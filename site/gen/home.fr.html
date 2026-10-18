@@ -1,0 +1,167 @@
+<section class="hero wrap">
+  <p class="kicker">post-it + terminal = <strong>POSTERM</strong></p>
+  <h1>Un job d'agent, c'est un terminal qui <em>tourne tout seul.</em></h1>
+  <p class="lede">C'est tout. C'est toute l'idée. <code>claude</code>, <code>codex</code>, <code>crush</code> ou un simple <code>bash</code> tournent dans tmux, parce que tmux a réglé la persistance il y a des décennies. POSTERM les met tous sur un seul mur, qui se lit en une demi-seconde, depuis ton bureau ou ton téléphone.</p>
+  <div class="install" id="install">
+    <pre class="cmd"><code><span class="ps" aria-hidden="true">$ </span><span data-copy-src>curl -fsSL https://posterm.sh/install | sh</span></code></pre>
+    <button type="button" class="copy" data-copy data-done="copié">copier</button>
+  </div>
+  <p class="fine">Linux et macOS · un binaire Go statique · il faut <code>tmux</code> ≥ 3.1 · <a href="{{root}}install">lis le script d'abord</a> : il est court exprès.</p>
+</section>
+
+<figure class="shot wrap wide">
+  <img src="{{root}}img/wall-fr.png" width="1920" height="707" alt="Le mur POSTERM : deux machines, six labos en post-its. Les rouges tournent et montrent la fin de leur écran, les jaunes attendent une réponse, un vert est posé, un gris est éteint." fetchpriority="high">
+</figure>
+
+<section class="band wrap" id="how">
+  <p class="label">01 · le problème</p>
+  <h2>Douze onglets, et celui bloqué sur <code>[y/N]</code> est celui que tu n'as pas regardé.</h2>
+  <p>Lance plus de trois agents de code à la fois et tu connais la suite. Donc : chaque job est un <strong>labo</strong>, un dossier plus une commande. Chaque labo est un post-it. La couleur te dit s'il a besoin de toi. Le reste de l'écran, tu peux l'ignorer.</p>
+  <ul class="notes" role="list">
+    <li class="note r"><b>en cours</b><span>L'écran bouge. Laisse-le bosser.</span></li>
+    <li class="note y"><b>question</b><span>Silencieux, bloqué sur une invite ou un dialogue. À toi.</span></li>
+    <li class="note g"><b>posé</b><span>Silencieux, rien demandé. Fini, ou en attente d'ordres.</span></li>
+    <li class="note k"><b>éteint</b><span>Plus de processus. Le code de sortie est sur le post-it.</span></li>
+  </ul>
+</section>
+
+<section class="band wrap">
+  <p class="label">02 · ce que tu as vraiment</p>
+  <h2>Un mur, un vrai terminal derrière chaque post-it, et rien entre les deux.</h2>
+
+  <div class="feature">
+    <div class="copy-col">
+      <h3>Le mur</h3>
+      <ul>
+        <li>Chaque post-it montre la fin de son écran en direct, ou la question exacte que l'agent a posée. Le titre de l'onglet et le badge de l'appli comptent les jaunes.</li>
+        <li>Les compteurs d'état sont des filtres. La recherche fouille le nom, le dossier et la commande. Les labos sont groupés par machine.</li>
+        <li><strong>Diffusion</strong> : coche des post-its, tape une ligne, chacun la reçoit, Entrée comprise. <code>continue</code>. <code>lance les tests</code>. <code>commit</code>. Fait.</li>
+        <li><strong>Journal</strong> : chaque question, chaque labo qui se pose après du vrai travail, chaque extinction, avec un compteur de ce qui s'est passé pendant que tu ne regardais pas.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="feature stack">
+    <figure class="shot"><img src="{{root}}img/lab.png" width="1920" height="1147" loading="lazy" alt="Un labo ouvert : le terminal de l'agent en haut, le rail des labos à gauche, le bash du labo en bas avec un git status."></figure>
+    <div class="copy-col">
+      <h3>Un labo, ouvert</h3>
+      <ul>
+        <li>Clique sur un post-it : tu es dans le <strong>vrai terminal</strong>, xterm.js sur tmux. Pas une visionneuse de logs, pas une fenêtre de chat. Ferme l'onglet, tue le navigateur, redémarre le hub : le job s'en fiche.</li>
+        <li><strong>Sélectionne du texte, un menu s'ouvre là où tu lâches</strong> : copier, ou télécharger en <code>.md</code>. Clique ailleurs et rien n'est copié.</li>
+        <li>Le <strong>rail</strong> liste tous les labos dans leur couleur. <code>Ctrl+Tab</code> parcourt les labos, <code>Alt+Q</code> saute à la prochaine question, <code>Alt+M</code> revient au mur.</li>
+        <li><strong>Un bash dans chaque labo</strong>, en bas, dans le dossier du labo, pour le <code>git diff</code> que tu veux pendant que l'agent bosse.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="feature split flip">
+    <figure class="shot"><img src="{{root}}img/drop.png" width="1200" height="360" loading="lazy" alt="Un fichier glissé au-dessus du bash du labo : un calque montre le dossier exact où il va atterrir."></figure>
+    <div class="copy-col">
+      <h3>Dépose des fichiers dessus</h3>
+      <ul>
+        <li>Glisse des fichiers <em>ou des dossiers entiers</em> sur le bash. Ils atterrissent dans <strong>son dossier courant</strong>, là où tu as fait <code>cd</code>. La cible s'affiche avant que tu lâches.</li>
+        <li>Les dossiers sont zippés dans le navigateur, envoyés en un seul flux, décompressés côté serveur. Un <code>.zip</code> déposé est décompressé dans <code>&lt;nom&gt;/</code>.</li>
+        <li>Rien n'est écrasé sans demander. <code>Échap</code> annule à tout moment, et un envoi annulé ou raté est défait : rien d'écrit.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="feature split">
+    <figure class="shot phone"><img src="{{root}}img/phone.png" width="780" height="1173" loading="lazy" alt="Le mur sur un téléphone : les mêmes post-its, deux par ligne."></figure>
+    <div class="copy-col">
+      <h3>Loin du bureau</h3>
+      <ul>
+        <li>Installe-le comme une appli (PWA). Une <strong>notification push</strong> part quand un labo pose une question ou se pose.</li>
+        <li>Là où le navigateur le permet, elle a un champ <strong>Répondre</strong> qui tape directement dans le labo.</li>
+        <li>Pas de push pour un labo que tu regardes déjà.</li>
+        <li>Sur téléphone, une barre de touches te donne <code>esc</code>, <code>tab</code>, <code>^C</code>, les flèches et Entrée.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="feature">
+    <div class="copy-col">
+      <h3>L'état exact, quand deviner ne suffit pas</h3>
+      <p>Les couleurs viennent d'une heuristique : l'écran a bougé, ou la ligne du curseur ressemble à une invite, ou un dialogue connu est affiché. Pour qu'elles soient exactes, fais-le dire au labo. Branche ça dans les hooks de ton agent :</p>
+<pre class="term"><code><span class="ps">$ </span>posterm etat question "Supprimer build/ ?"   <span class="c"># jaune, avec le texte sur le post-it</span>
+<span class="ps">$ </span>posterm etat pose                            <span class="c"># vert</span></code></pre>
+      <p>Pas de réseau, pas de jeton : ça écrit un fichier. Le système de fichiers sert d'IPC. (<code>posterm state question|idle</code> marche aussi.)</p>
+    </div>
+  </div>
+</section>
+
+<section class="band wrap">
+  <p class="label">03 · une journée sur le mur</p>
+  <h2>Tes yeux vont là où il y a de la couleur.</h2>
+  <ol class="day" role="list">
+    <li><b>Le matin</b><p>Tu ouvres le mur. Ce qui a tourné cette nuit est vert, jaune ou gris, et le journal raconte ce qui s'est passé pendant que tu dormais. Les jaunes d'abord.</p></li>
+    <li><b>La journée</b><p>Cinq, dix labos en même temps, sur une machine ou plusieurs. Diffuse <code>lance les tests</code> à tous les verts, relis le diff dans le bash du labo, dépose-lui le fichier de spec.</p></li>
+    <li><b>En vadrouille</b><p>Le téléphone vibre : un labo a une question. Tu réponds depuis la notification, sans rouvrir l'ordi.</p></li>
+    <li><b>Le soir</b><p>Lance les longs, ferme le navigateur. Les labos vivent dans tmux, sur la machine, pas dans ton onglet. Ils seront là demain.</p></li>
+  </ol>
+</section>
+
+<section class="band wrap">
+  <p class="label">04 · un binaire, quatre visages</p>
+  <h2>Le même binaire sur chaque machine.</h2>
+<pre class="term big"><code><span class="ps">$ </span>posterm                       <span class="c"># le hub : le mur web + les labos de cette machine</span>
+<span class="ps">$ </span>posterm join https://hub…     <span class="c"># un rayon : publie les labos de cette machine au hub</span>
+<span class="ps">$ </span>posterm lab ~/code/api claude <span class="c"># lance un labo ici, depuis le shell</span>
+<span class="ps">$ </span>posterm etat question "…"     <span class="c"># depuis un labo : dire où il en est</span></code></pre>
+  <div class="feature split">
+    <figure class="shot"><img src="{{root}}img/arch.png" width="1600" height="900" loading="lazy" alt="Architecture : ton navigateur parle en HTTPS à un hub ; les rayons, sur d'autres machines, appellent le hub par un seul WebSocket ; chaque machine fait tourner ses labos dans son propre tmux."></figure>
+    <div class="copy-col">
+      <h3>Plus de machines</h3>
+      <p>Le rayon appelle <strong>vers l'extérieur</strong> : un WebSocket vers le hub. Aucun port à ouvrir, le NAT et les box ne sont pas ton problème.</p>
+      <p>Dans le tunnel (yamux), le hub parle du HTTP tout bête au rayon, parce que chaque machine expose exactement la même petite API et que le hub n'est qu'un reverse proxy vers <code>/m/&lt;machine&gt;/…</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="band wrap">
+  <p class="label">05 · l'installer</p>
+  <h2>Installe, ouvre, clique <span class="kbd">+ labo</span>.</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>Linux, en une ligne</h3>
+<pre class="term"><code><span class="ps">$ </span>curl -fsSL https://posterm.sh/install | sh
+<span class="ps">$ </span>posterm   <span class="c"># http://127.0.0.1:8206</span></code></pre>
+      <p>Le premier démarrage génère un jeton d'accès, l'affiche et le garde. Ouvre la page, colle le jeton, clique <strong>+ labo</strong> : un dossier, une commande. Pour un hub qui reste allumé, le README fournit une unité systemd et un Caddyfile verrouillé. <code>POSTERM_LANG=fr</code> pour l'interface en français.</p>
+    </div>
+    <div class="col">
+      <h3>macOS, sans compilateur</h3>
+      <ol>
+        <li>Dézippe, double-clique <code>install.command</code> : il installe tmux (Homebrew), lance le hub à chaque session et ouvre Safari avec le jeton dans le presse-papier.</li>
+        <li>Colle le jeton.</li>
+        <li><strong>Fichier → Ajouter au Dock</strong>. C'est l'appli : sa fenêtre, son icône, ses notifications.</li>
+      </ol>
+      <p>Les labos survivent aux mises à jour et aux fenêtres fermées. La même ligne <code>curl</code> marche sur Mac.</p>
+    </div>
+    <div class="col">
+      <h3>Depuis les sources</h3>
+<pre class="term"><code><span class="ps">$ </span>git clone {{repo}}
+<span class="ps">$ </span>cd posterm.sh && bin/build.sh</code></pre>
+      <p>Go et tmux. C'est toute la liste des dépendances.</p>
+    </div>
+  </div>
+</section>
+
+<section class="band wrap">
+  <p class="label">06 · ce qu'il ne fera pas</p>
+  <h2>Moins, exprès.</h2>
+  <ul class="nos" role="list">
+    <li><b>Pas de framework d'agents.</b> Tes agents sont les programmes que tu lances déjà.</li>
+    <li><b>Pas de file d'attente.</b> tmux est la file, et la persistance.</li>
+    <li><b>Pas de base de données.</b> Un registre JSON et un journal en ajout seul.</li>
+    <li><b>Pas de fenêtre de chat.</b> On parle aux agents dans leur terminal. Les terminaux servent à ça.</li>
+    <li><b>Pas de build JS.</b> Du JS sans framework, xterm.js embarqué, le tout dans le binaire.</li>
+    <li><b>Pas de compte, pas de SaaS.</b> Tes machines, un jeton, un opérateur.</li>
+  </ul>
+  <p class="more"><a class="btn" href="{{root}}design/">Pourquoi il est construit ainsi (en anglais) →</a> <a class="btn ghost" href="{{repo}}" rel="noopener">Les sources sur GitHub</a></p>
+</section>
+
+<section class="band wrap dog">
+  <p class="label">07 · mangé tous les jours</p>
+  <p class="big">Construit par la personne qui s'en sert, tous les jours, matin, midi et soir, depuis le premier commit. Ce n'est pas une démo qui a grandi : c'est l'outil, et il est corrigé le jour même où il gêne.</p>
+  <p class="fine">Et franchement : voir dix agents bosser en parallèle, savoir d'un coup d'œil lequel t'attend, et lui répondre depuis le canapé, ça ne lasse pas. Ce site a été écrit par un agent qui tournait dans un labo POSTERM, sur ce mur.</p>
+</section>

@@ -1,0 +1,21 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 34px; margin-top: 90px; }
+.p { color: var(--ink); height: 460px; padding: 30px 28px; position: relative; box-shadow: 10px 10px 0 #262626; display: flex; flex-direction: column; }
+.p:nth-child(odd) { transform: rotate(-1.2deg); } .p:nth-child(even) { transform: rotate(.9deg); }
+.p b { font-size: 34px; display: block; }
+.p i { font-style: normal; font-size: 17px; opacity: .65; margin-top: 4px; }
+.p p { font-size: 22px; line-height: 1.4; margin-top: 30px; }
+.p small { margin-top: auto; font-size: 16px; line-height: 1.45; border-top: 2px dashed rgba(0,0,0,.25); padding-top: 14px; }
+.r { background: var(--encours); } .y { background: var(--question); } .g { background: var(--pose); } .k { background: var(--eteint); }
+</style>
+<div class="card">
+  <h1 style="font-size:50px">Glance at the wall. <em>Yellow = your turn.</em></h1>
+  <div class="row">
+    <div class="p r"><b>running</b><p>The screen moved in the last 3 s. It's working: leave it.</p><small>live tail of the screen on the post-it</small></div>
+    <div class="p y"><b>question</b><p>Silent, and stuck on a prompt or a permission dialog.</p><small>push notification, reply from the lock screen</small></div>
+    <div class="p g"><b>idle</b><p>Silent, nothing asked. Done, or waiting for the next task.</p><small>journaled when it settles after real work</small></div>
+    <div class="p k"><b>dead</b><p>No process left. The exit code is on the post-it.</p><small>one click to relaunch</small></div>
+  </div>
+  <div class="brand">POSTERM<span>.sh</span></div><div class="tag">exact state from agent hooks: posterm state question "…"</div>
+</div>

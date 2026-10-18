@@ -1,0 +1,76 @@
+# POSTERM — sample Caddyfile, locked-down version.
+#
+# Nothing to plan for the labs' user: Caddy talks to the hub over TCP on
+# 127.0.0.1 (POSTERM_ADDR), whoever the service runs as.
+#
+# The hub hands out a shell on every connected machine, so stack the locks:
+# POSTERM token + IP allowlist + (optional) client certificate.
+# Replace hub.example.org, the IPs and the port with yours.
+
+{
+	# No Caddy admin endpoint on the network (it stays on localhost:2019).
+	admin localhost:2019
+	servers {
+		protocols h1 h2 # no HTTP/3: less surface, nothing to gain here
+	}
+}
+
+hub.example.org {
+	# --- 1. Who may knock ------------------------------------------------------
+	# Your fixed IPs / your VPN (WireGuard, Tailscale…), and the spokes'
+	# (`posterm join`). Everything else is dropped without an answer.
+	@outside not remote_ip 203.0.113.10/32 100.64.0.0/10
+	abort @outside
+
+	# --- 2. (optional) Client certificate: very strong, but it has to be
+	# installed on every device (browser, phone) and every spoke. Uncomment
+	# and point at the CA that signs your client certificates:
+	# tls {
+	# 	protocols tls1.3
+	# 	client_auth {
+	# 		mode require_and_verify
+	# 		trust_pool file /etc/caddy/posterm-clients-ca.pem
+	# 	}
+	# }
+	tls {
+		protocols tls1.3
+	}
+
+	# --- 3. Headers: no iframes, no leaks, no third-party content -----------
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		# Everything comes from the hub. 'unsafe-inline' for styles only:
+		# xterm.js injects its own <style>. No inline script, ever.
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+	# Nothing the wall sends is more than a few KB (a line typed into a lab, a
+	# push subscription)… except files dropped on a bash.
+	@upload path_regexp ^/m/[^/]+/api/labs/[^/]+/sh/upload$
+	@rest not path_regexp ^/m/[^/]+/api/labs/[^/]+/sh/upload$
+	request_body @rest {
+		max_size 1MB
+	}
+	request_body @upload {
+		max_size 10GB
+	}
+
+	# --- 4. The hub ------------------------------------------------------------
+	# WebSocket (terminals, spokes) and SSE (the wall) pass through as is.
+	reverse_proxy 127.0.0.1:8206 # = POSTERM_ADDR in the .env
+
+	log {
+		output file /var/log/caddy/posterm.log {
+			roll_size 10MiB
+			roll_keep 10
+		}
+	}
+}

@@ -1,0 +1,12 @@
+/posterm
+/monia
+.env
+/bin/backup/
+/bin/.build.lock
+/posterm.new
+/monia.new
+/data/
+/macos/dist/
+/dist/
+CLAUDE.md
+.claude

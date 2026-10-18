@@ -1,0 +1,38 @@
+# POSTERM — sample systemd unit for the hub.
+# Copy to /etc/systemd/system/posterm.service, then:
+#   systemctl daemon-reload && systemctl enable --now posterm
+#
+# The service starts as root and posterm immediately becomes the identity set
+# in the .env (POSTERM_USER / POSTERM_GROUP): root, posterm, www-data… The labs
+# run as that identity, so it must be able to write to the projects (see
+# "Deploying the hub" in the README) and have claude, codex… installed and
+# logged in. The .env can therefore stay readable by root only.
+
+[Unit]
+Description=POSTERM — the lab wall
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# No User= here: POSTERM_USER, in the .env, decides.
+# Where the binary and the .env live (adjust).
+WorkingDirectory=/opt/posterm
+ExecStart=/opt/posterm/posterm
+Restart=always
+RestartSec=2
+
+# Not optional: the labs live in a tmux server started by the hub. Without
+# KillMode=process, stopping or restarting the hub kills every lab.
+# (systemd will warn at stop that processes remain: that's the point.)
+KillMode=process
+
+# Files created by the labs stay group-writable, so the web server (www-data)
+# can still write to setgid projects.
+UMask=0002
+
+# No hardening (ProtectSystem, NoNewPrivileges…): every lab is a full shell
+# that must write to the projects and use sudo if its user is allowed to.
+
+[Install]
+WantedBy=multi-user.target

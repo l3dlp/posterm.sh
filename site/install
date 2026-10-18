@@ -1,0 +1,111 @@
+#!/bin/sh
+# POSTERM installer.
+#
+#   curl -fsSL https://posterm.sh/install | sh
+#
+# Linux: puts the static binary in ~/.local/bin (or /usr/local/bin as root),
+#        checks tmux, tells you how to start. Nothing runs in the background.
+# macOS: fetches the Mac package and runs its installer (tmux via Homebrew,
+#        a LaunchAgent, Safari's Add to Dock as the app).
+# Every download is checked against the release's SHA256SUMS.
+#
+# Read it before you pipe it: it's short on purpose.
+# POSTERM_REPO=owner/name picks another GitHub repo, POSTERM_BASE another
+# download URL (a mirror, or a local dir served over http for testing).
+
+# Everything lives in main, called on the last line: a cut-off download runs
+# nothing.
+main() {
+	set -eu
+	repo=${POSTERM_REPO:-l3dlp/posterm.sh}
+	base=${POSTERM_BASE:-https://github.com/$repo/releases/latest/download}
+
+	say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
+	ok() { printf '    %s\n' "$*"; }
+	die() { printf '\033[31mxx  %s\033[0m\n' "$*" >&2; exit 1; }
+
+	command -v curl >/dev/null || die "curl not found."
+	case $(uname -m) in
+	x86_64 | amd64) arch=amd64 ;;
+	aarch64 | arm64) arch=arm64 ;;
+	*) die "No build for $(uname -m). Build from source: https://github.com/$repo" ;;
+	esac
+	os=$(uname -s)
+
+	tmp=$(mktemp -d)
+	trap 'rm -rf "$tmp"' EXIT INT TERM
+
+	fetch() { # fetch <asset>: download it and check its sum
+		curl -fsSL --proto '=https,http' -o "$tmp/$1" "$base/$1" || die "Download failed: $base/$1"
+		want=$(grep " $1\$" "$tmp/SHA256SUMS" | cut -d' ' -f1)
+		[ -n "$want" ] || die "$1 is not in SHA256SUMS."
+		if command -v sha256sum >/dev/null; then
+			got=$(sha256sum "$tmp/$1" | cut -d' ' -f1)
+		else
+			got=$(shasum -a 256 "$tmp/$1" | cut -d' ' -f1)
+		fi
+		[ "$got" = "$want" ] || die "Checksum mismatch for $1. Not installing."
+	}
+
+	say "POSTERM from $base"
+	curl -fsSL --proto '=https,http' -o "$tmp/SHA256SUMS" "$base/SHA256SUMS" || die "Download failed: $base/SHA256SUMS"
+
+	case $os in
+	Darwin)
+		fetch POSTERM-macos.zip
+		ok "checksum ok"
+		command -v unzip >/dev/null || die "unzip not found."
+		unzip -q "$tmp/POSTERM-macos.zip" -d "$tmp"
+		# The Mac installer asks questions: give it the terminal, not this pipe.
+		if [ -r /dev/tty ]; then
+			bash "$tmp/POSTERM/install.command" </dev/tty
+		else
+			bash "$tmp/POSTERM/install.command"
+		fi
+		;;
+	Linux)
+		asset=posterm-linux-$arch
+		fetch "$asset"
+		ok "checksum ok"
+		if [ "$(id -u)" = 0 ]; then dir=/usr/local/bin; else dir=$HOME/.local/bin; fi
+		mkdir -p "$dir"
+		install -m 755 "$tmp/$asset" "$dir/posterm"
+		say "Installed $dir/posterm"
+
+		if command -v tmux >/dev/null; then
+			v=$(tmux -V | sed 's/[^0-9.]//g')
+			case $v in
+			0.* | 1.* | 2.* | 3.0*) ok "tmux $v is too old: POSTERM needs 3.1 or later." ;;
+			*) ok "tmux $v" ;;
+			esac
+		else
+			ok "tmux is missing, and POSTERM is built on it. Install it:"
+			if command -v apt-get >/dev/null; then ok "  sudo apt-get install tmux"
+			elif command -v dnf >/dev/null; then ok "  sudo dnf install tmux"
+			elif command -v pacman >/dev/null; then ok "  sudo pacman -S tmux"
+			elif command -v apk >/dev/null; then ok "  sudo apk add tmux"
+			elif command -v zypper >/dev/null; then ok "  sudo zypper install tmux"
+			else ok "  (your package manager) tmux"
+			fi
+		fi
+
+		case ":$PATH:" in
+		*":$dir:"*) cmd=posterm ;;
+		*)
+			cmd=$dir/posterm
+			ok "$dir is not on your PATH: add it, or call $cmd"
+			;;
+		esac
+		cat <<EOF
+
+Start the hub:     $cmd
+Then open:         http://127.0.0.1:8206  (the token is printed at first start)
+Run it as a service, add machines, lock it down:
+                   https://github.com/$repo#readme
+EOF
+		;;
+	*) die "No build for $os. Build from source: https://github.com/$repo" ;;
+	esac
+}
+
+main "$@"

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="{{LANG}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{TITRE}}</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="stylesheet" href="/vendor/xterm.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header id="bar">
+  <a class="logo" href="#" title="{{t:html.wall_hint}}" data-offline="{{t:state.offline}}">{{TITRE}}</a>
+  <nav id="chips" aria-label="{{t:html.chips}}"></nav>
+  <input id="search" type="search" placeholder="{{t:html.search}}" aria-label="{{t:html.search_label}}">
+  <span class="grow"></span>
+  <button id="btn-journal" type="button">{{t:html.journal}}</button>
+  <button id="btn-push" type="button" hidden></button>
+  <button id="btn-new" type="button" class="primary">{{t:html.new}}</button>
+</header>
+
+<main id="wall"></main>
+
+<form id="broadcast" hidden>
+  <span id="broadcast-count"></span>
+  <input id="broadcast-text" placeholder="{{t:html.broadcast}}" autocomplete="off" required>
+  <button class="primary">{{t:html.send}}</button>
+  <button type="button" id="broadcast-clear" title="{{t:html.untick}}">✕</button>
+</form>
+
+<section id="lab" hidden>
+  <nav id="rail" aria-label="{{t:html.rail}}"></nav>
+  <div id="stage">
+    <div id="labbar">
+      <a class="btn" href="#" title="{{t:html.back_hint}}">{{t:html.back}}</a>
+      <div class="who"><b id="lab-name"></b><small id="lab-where"></small></div>
+      <span id="lab-state" class="pill"></span>
+      <button type="button" id="lab-shell" title="{{t:html.bash_hint}}">{{t:html.bash}}</button>
+      <button type="button" id="lab-start">{{t:html.start}}</button>
+      <button type="button" id="lab-stop">{{t:html.stop}}</button>
+      <button type="button" id="lab-delete">{{t:html.delete}}</button>
+    </div>
+    <div id="screen">
+      <div id="term"></div>
+      <div id="veil" hidden><p id="veil-text"></p><button type="button" id="veil-btn" class="primary"></button></div>
+    </div>
+    <div id="shell" hidden>
+      <div id="shell-grip" role="separator" aria-orientation="horizontal" aria-label="{{t:html.grip}}" tabindex="0"></div>
+      <div id="shell-screen">
+        <div id="shell-term"></div>
+        <div id="shell-veil" hidden><span>{{t:html.bash_closed}}</span><button type="button" class="primary">{{t:html.reopen}}</button></div>
+        <div id="shell-drop" hidden><button type="button" class="drop-close" title="{{t:html.drop_cancel}}" aria-label="{{t:html.drop_cancel_label}}" hidden>✕</button><p></p><progress hidden max="1"></progress></div>
+      </div>
+    </div>
+    <form id="keys">
+      <button type="button" data-seq="esc">esc</button>
+      <button type="button" data-seq="tab">tab</button>
+      <button type="button" data-seq="ctrlc">^C</button>
+      <button type="button" data-seq="up">↑</button>
+      <button type="button" data-seq="down">↓</button>
+      <button type="button" data-seq="enter">⏎</button>
+      <input id="keys-text" placeholder="{{t:html.type}}" autocomplete="off" autocapitalize="off">
+      <button class="primary">{{t:html.send}}</button>
+    </form>
+  </div>
+</section>
+
+<dialog id="dlg-new">
+  <form method="dialog" id="form-new">
+    <h2>{{t:html.new_title}}</h2>
+    <label>{{t:html.machine}} <select id="new-machine"></select></label>
+    <label>{{t:html.dir}} <input id="new-dir" list="new-dirs" placeholder="{{t:html.dir_hint}}" autocomplete="off" required></label>
+    <datalist id="new-dirs"></datalist>
+    <label>{{t:html.cmd}} <input id="new-cmd" list="new-cmds" placeholder="{{t:html.cmd_hint}}" autocomplete="off" autocapitalize="off"></label>
+    <datalist id="new-cmds"></datalist>
+    <label>{{t:html.name}} <input id="new-name" placeholder="{{t:html.name_hint}}" autocomplete="off"></label>
+    <p class="error" id="new-error" hidden></p>
+    <footer>
+      <button type="button" data-close>{{t:html.cancel}}</button>
+      <button class="primary" value="ok">{{t:html.launch}}</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="dlg-journal">
+  <header><h2>{{t:html.journal_title}}</h2><button type="button" data-close>{{t:html.close}}</button></header>
+  <ol id="journal"></ol>
+</dialog>
+
+<dialog id="dlg-login">
+  <form id="form-login">
+    <h2>{{TITRE}}</h2>
+    <input type="text" autocomplete="username" value="posterm" hidden>
+    <label>{{t:html.token}} <input id="login-token" type="password" autocomplete="current-password" required></label>
+    <p class="error" id="login-error" hidden></p>
+    <footer><button class="primary">{{t:html.enter}}</button></footer>
+  </form>
+</dialog>
+
+<div id="selmenu" role="menu" hidden>
+  <button type="button" role="menuitem" data-act="copy">{{t:sel.copy}}</button>
+  <button type="button" role="menuitem" data-act="md">{{t:sel.md}}</button>
+</div>
+
+<div id="toast" role="status" hidden></div>
+
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script src="/i18n.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

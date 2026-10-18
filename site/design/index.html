@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why POSTERM is built this way</title>
+<meta name="description" content="Every design choice behind POSTERM — tmux as the job queue, one static binary, spokes that dial out, state read off the screen — with what was turned down and what it costs.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://posterm.sh/design/">
+
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="POSTERM">
+<meta property="og:title" content="Why POSTERM is built this way">
+<meta property="og:description" content="Every design choice behind POSTERM — tmux as the job queue, one static binary, spokes that dial out, state read off the screen — with what was turned down and what it costs.">
+<meta property="og:url" content="https://posterm.sh/design/">
+<meta property="og:image" content="https://posterm.sh/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A wall of colored post-its, each one a live terminal running a coding agent.">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Why POSTERM is built this way">
+<meta name="twitter:description" content="Every design choice behind POSTERM — tmux as the job queue, one static binary, spokes that dial out, state read off the screen — with what was turned down and what it costs.">
+<meta name="twitter:image" content="https://posterm.sh/og.png">
+<script src="../assets/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap bar">
+    <a class="logo" href="../" aria-label="POSTERM, Home">POSTERM<span>.sh</span></a>
+    <nav aria-label="Site">
+      <a href="../#how">How it works</a>
+      <a href="../#install">Install</a>
+      <a href="../design/">Design</a>
+      <a href="https://github.com/l3dlp/posterm.sh" rel="noopener">GitHub</a>
+      <a class="lang" href="../fr/" hreflang="fr" lang="fr" title="Version française">FR</a>
+    </nav>
+  </div>
+</header>
+<main id="main">
+<div class="doc wrap">
+<header class="doc-head prose"><h1>Why POSTERM is built this way</h1>
+<p>POSTERM rests on one idea: <strong>an agent job is a terminal that runs on its own.</strong> Everything below follows from taking that sentence literally. If a job is a terminal, the best job runner is the thing that already keeps terminals alive without you (tmux), the best job view is the terminal itself (xterm.js), and the job&#39;s state is whatever its screen says.</p>
+<p>This document goes through every choice that matters. For each one it gives what we picked, why, what we turned down, and what it costs. Nothing here is aspirational: every claim maps to code you can read in an afternoon, under 3,000 lines of Go and JS plus a vendored xterm.js.</p>
+</header>
+<nav class="toc" aria-label="Contents"><details open><summary>Contents</summary><ol>
+<li><a href="#the-shape-of-the-thing">The shape of the thing</a></li>
+<li><a href="#tmux-is-the-job-queue">tmux is the job queue</a></li>
+<li><a href="#a-lab-is-a-dir-plus-a-command">A lab is a dir plus a command</a></li>
+<li><a href="#one-static-binary-four-faces">One static binary, four faces</a></li>
+<li><a href="#every-machine-speaks-the-same-api">Every machine speaks the same API</a></li>
+<li><a href="#spokes-dial-out">Spokes dial out</a></li>
+<li><a href="#state-is-read-off-the-screen">State is read off the screen</a></li>
+<li><a href="#the-filesystem-is-the-ipc">The filesystem is the IPC</a></li>
+<li><a href="#one-token-one-operator">One token, one operator</a></li>
+<li><a href="#no-build-step-in-the-browser">No build step in the browser</a></li>
+<li><a href="#the-journal-records-transitions-not-bytes">The journal records transitions, not bytes</a></li>
+<li><a href="#push-with-a-reply-field">Push, with a Reply field</a></li>
+<li><a href="#a-bash-under-every-lab">A bash under every lab</a></li>
+<li><a href="#uploads-land-whole-or-not-at-all">Uploads land whole or not at all</a></li>
+<li><a href="#selection-goes-through-osc-52">Selection goes through OSC 52</a></li>
+<li><a href="#one-dictionary-per-language-everywhere">One dictionary per language, everywhere</a></li>
+<li><a href="#dropping-privileges-before-tmux">Dropping privileges before tmux</a></li>
+<li><a href="#the-mac-package-touches-no-code">The Mac package touches no code</a></li>
+<li><a href="#what-we-will-not-build">What we will not build</a></li>
+<li><a href="#rules-we-keep">Rules we keep</a></li>
+<li><a href="#read-the-code">Read the code</a></li>
+</ol></details></nav>
+<article class="prose">
+<h2 id="the-shape-of-the-thing">The shape of the thing <a class="hash" href="#the-shape-of-the-thing" aria-label="link to this section">#</a></h2>
+<pre tabindex="0"><code> browser / phone (PWA)
+   │  HTTPS (reverse proxy: TLS, IP allowlist)
+   ▼
+ ┌──────────── hub: posterm ────────────┐
+ │  auth guard ─ static wall ─ SSE      │
+ │  /m/&lt;machine&gt;/…  ── route ──┐        │
+ │                             │        │
+ │  local Engine ◄─ in-process─┤        │
+ │                             │        │
+ │  yamux client ◄─────────────┘        │
+ └──────▲───────────────────────▲───────┘
+        │ WebSocket (dialed out │ by the spoke)
+ ┌──────┴────────┐       ┌──────┴────────┐
+ │ spoke: posterm│       │ spoke: posterm│
+ │ join  Engine  │       │ join  Engine  │
+ │      tmux     │       │      tmux     │
+ └───────────────┘       └───────────────┘</code></pre>
+<p>One binary plays every role. The hub serves the wall and runs its own machine&#39;s labs. A spoke runs labs and publishes them to the hub. On every machine an <code>Engine</code> owns a private tmux server. The hub never holds lab state of its own: it reads it from the engines once a second.</p>
+<h2 id="tmux-is-the-job-queue">tmux is the job queue <a class="hash" href="#tmux-is-the-job-queue" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> Each lab is a tmux session on a private tmux server whose socket lives in the data dir (<code>$POSTERM_DATA/tmux.sock</code>, started with our own <code>tmux.conf</code>). That server <em>is</em> the scheduler, the process supervisor, the scrollback store and the persistence layer. POSTERM only watches it and talks to it.</p>
+<p><strong>Why.</strong> tmux has solved &#34;keep this process and its screen alive while nobody watches&#34; for decades. It survives SSH drops, browser crashes and our own restarts. It already knows everything we need: whether the pane is dead and with which exit code (<code>remain-on-exit on</code>), when the screen last changed (<code>window_activity</code>), where the cursor is, how many clients are attached, and what the screen shows (<code>capture-pane</code>). A single <code>tmux list-panes -a</code> call per second returns all of it for every lab at once.</p>
+<p>The generated <code>tmux.conf</code> is short and every line has a reason:</p>
+<div class="table" tabindex="0"><table><thead><tr><th>line</th><th>why</th></tr></thead><tbody>
+<tr><td><code>status off</code></td><td>the wall is the status bar</td></tr>
+<tr><td><code>remain-on-exit on</code></td><td>a dead lab keeps its last screen and exit code: grey post-it</td></tr>
+<tr><td><code>history-limit 20000</code></td><td>scrollback you can actually use</td></tr>
+<tr><td><code>mouse on</code></td><td>wheel scrolling and selection inside the browser terminal</td></tr>
+<tr><td><code>escape-time 0</code></td><td>Esc reaches TUIs (vim, agent dialogs) without a delay</td></tr>
+<tr><td><code>focus-events on</code></td><td>TUIs that care about focus get it</td></tr>
+<tr><td>256 colors + <code>Tc</code></td><td>agents print in color; truecolor where the client has it</td></tr>
+</tbody></table></div>
+<p><strong>What we refused.</strong></p>
+<ul>
+<li>A database of jobs. It would duplicate what tmux knows, and the two would disagree the first time the hub crashed.</li>
+<li>Our own process supervisor (fork, PTY bookkeeping, log files). That&#39;s rewriting tmux badly, and our jobs would die with our process.</li>
+<li>A container per job. Agents need your real toolchain, your real login and your real files. A container makes all three someone else&#39;s problem, then yours again.</li>
+</ul>
+<p><strong>The cost.</strong> Labs survive the hub, so the hub must not kill them on the way out. Under systemd that means <code>KillMode=process</code> (the sample unit sets it): without it, a restart takes the tmux server, and every lab, down with it. The macOS LaunchAgent sets <code>AbandonProcessGroup</code> for the same reason. And tmux does not survive a machine reboot: after one, labs are still in the registry but grey, and &#34;respawn&#34; starts the command from scratch.</p>
+<h2 id="a-lab-is-a-dir-plus-a-command">A lab is a dir plus a command <a class="hash" href="#a-lab-is-a-dir-plus-a-command" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> A lab is four fields in <code>labs.json</code>: id, name, dir, command. It runs as <code>$SHELL -lic &#39;cd &lt;dir&gt; &amp;&amp; &lt;cmd&gt;&#39;</code>, a login <em>and</em> interactive shell, with <code>POSTERM_LAB</code> and <code>POSTERM_DATA</code> set. With no command, it is a plain login shell. Respawning reuses the session (<code>respawn-pane -k</code>), so the post-it and anything attached to it stay put.</p>
+<p><strong>Why.</strong> Agents are installed per user, through nvm, <code>~/.local/bin</code>, shell functions and profile tweaks. The only PATH that reliably works is the one your terminal has, and that one comes from a login + interactive shell. The explicit <code>cd</code> comes after the profile has run, because profiles love to <code>cd</code> somewhere.</p>
+<p>The registry is a file re-read on every poll and written atomically (temp + rename). That makes it an API: <code>posterm lab &lt;dir&gt; [cmd…]</code> from a shell and <code>+ lab</code> on the wall both write the same file, and the engine picks the change up within a second. Ids are slugs of the name, deduplicated with <code>-2</code>, <code>-3</code>…</p>
+<p><strong>What we refused.</strong> Job definitions with retries, schedules, environment blocks and resource limits. An agent job is interactive by nature: it asks questions, you answer. A YAML schema for that is a costume.</p>
+<p><strong>The cost.</strong> A command that only works in a non-login shell, or a profile that prints a wall of text, shows up as is. A lab without a command lands wherever your profile sends it, since there is nothing to <code>cd</code> before.</p>
+<h2 id="one-static-binary-four-faces">One static binary, four faces <a class="hash" href="#one-static-binary-four-faces" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> One Go binary, built with <code>CGO_ENABLED=0</code>, with the whole web UI embedded (<code>//go:embed web</code>). It has four entry points:</p>
+<pre tabindex="0"><code>posterm                       the hub: web wall + this machine&#39;s labs
+posterm join [hub-url]        a spoke: publish this machine&#39;s labs to a hub
+posterm lab &lt;dir&gt; [cmd…]      create and start a lab from the shell
+posterm state &lt;question|idle&gt; [text…]   from inside a lab: say where it is</code></pre>
+<p>Configuration is environment variables or a <code>.env</code> in the working directory, and the real environment always wins.</p>
+<p><strong>Why.</strong> Deploying is copying one file. A spoke is the same file plus a URL and a token. Hub and spokes can&#39;t drift apart in version of the UI because there is only one UI, served by the hub. Go gives us a static binary, a proper HTTP stack and goroutines for the per-terminal pumps, and it cross-compiles to macOS from Linux without a Mac in the loop.</p>
+<p><strong>What we refused.</strong></p>
+<ul>
+<li>Separate server, agent and CLI packages: three things to version and keep in step for no gain.</li>
+<li>A Node or Python runtime on every machine.</li>
+<li>A config file format with its own parser. <code>KEY=VALUE</code> lines are enough, and every installation-specific value lives there and nowhere else.</li>
+</ul>
+<p><strong>The cost.</strong> Any change to the UI is a rebuild. That&#39;s fine: a build is a few seconds.</p>
+<h2 id="every-machine-speaks-the-same-api">Every machine speaks the same API <a class="hash" href="#every-machine-speaks-the-same-api" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> <code>Engine.Handler()</code> is the entire HTTP surface of one machine: list labs, create, start, stop, delete, type keys, complete directory names, the terminal WebSocket, the companion bash and uploads. The hub mounts every engine under <code>/m/&lt;machine&gt;/…</code>. For its own machine the request goes in-process to the handler. For a spoke it goes through <code>httputil.ReverseProxy</code>, into the tunnel.</p>
+<p><strong>Why.</strong> The hub stays dumb, which is the point. There is no hub-side copy of the lab logic, no RPC layer, no message types. A request for a spoke&#39;s terminal is an ordinary HTTP request with an Upgrade header, proxied as is. Adding a feature to labs means adding a route to the engine, and it works on every machine at once.</p>
+<p><code>/m/</code> is mounted on a raw <code>http.ServeMux</code>, outside gin. That&#39;s not style: each engine is its own gin router and must own the raw <code>ResponseWriter</code>, otherwise its WebSocket upgrade never reaches the wire.</p>
+<p><strong>What we refused.</strong> A central server that owns labs and pushes commands to dumb agents. Labs belong to the machine they run on. The hub can vanish and every lab keeps going, and <code>tmux attach</code> on the machine still works.</p>
+<p><strong>The cost.</strong> The wall needs the hub to aggregate state, so the hub polls every spoke&#39;s <code>/api/labs</code> once a second through the tunnel. Cheap, but it is polling.</p>
+<h2 id="spokes-dial-out">Spokes dial out <a class="hash" href="#spokes-dial-out" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> <code>posterm join https://hub.example.org</code> opens one outbound WebSocket to <code>/join</code>, authenticated with <code>Authorization: Bearer &lt;token&gt;</code>. Both ends wrap that WebSocket in a yamux session. The <strong>hub is the yamux client</strong>: every stream it opens is a fresh connection to the spoke, on which the spoke runs <code>http.Serve</code> with its engine handler.</p>
+<pre tabindex="0"><code>hub                                       spoke
+ http.Transport{Dial: sess.Open}  ──►  yamux server ──► http.Serve(engine)
+        ▲                                          (no listening port)
+        └── ReverseProxy for /m/&lt;spoke&gt;/…</code></pre>
+<p><strong>Why.</strong> The spoke listens on nothing. No port to open, no firewall rule, NAT and home routers don&#39;t matter. And since the hub opens the streams, the rest is plain HTTP: the same handler, the same proxy, the same WebSocket upgrade for terminals as on the hub&#39;s own machine.</p>
+<p>Reconnection is the spoke&#39;s job: exponential backoff from 1 s to 30 s, forever. A 401 (wrong token) or 409 (name taken, or equal to the hub&#39;s name) is fatal instead, because retrying won&#39;t fix it. If a spoke reconnects under the same name, the hub closes the old session and keeps the last known labs until fresh ones arrive.</p>
+<p><strong>What we refused.</strong></p>
+<ul>
+<li>SSH tunnels managed by hand.</li>
+<li>A VPN as a requirement. You may use one; POSTERM doesn&#39;t need it.</li>
+<li>gRPC or a custom framing. HTTP over yamux reuses everything we already have.</li>
+</ul>
+<p><strong>The cost.</strong> A spoke&#39;s labs show as offline the moment the tunnel drops, until it reconnects. The tunnel carries every terminal byte for that spoke, so a slow link is a slow terminal.</p>
+<h2 id="state-is-read-off-the-screen">State is read off the screen <a class="hash" href="#state-is-read-off-the-screen" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> Once a second, for every lab, the engine decides one of four states:</p>
+<div class="table" tabindex="0"><table><thead><tr><th>order</th><th>condition</th><th>state</th><th>color</th></tr></thead><tbody>
+<tr><td>1</td><td>the pane is dead</td><td><code>dead</code></td><td>grey</td></tr>
+<tr><td>2</td><td>the screen changed less than <code>POSTERM_QUIET</code> s ago (default 3)</td><td><code>running</code></td><td>red</td></tr>
+<tr><td>3</td><td>the cursor line looks like a prompt, or the screen shows a dialog</td><td><code>question</code></td><td>yellow</td></tr>
+<tr><td>4</td><td>anything else</td><td><code>idle</code></td><td>green</td></tr>
+</tbody></table></div>
+<p>The prompt test runs on the line under the cursor, with box-drawing frames stripped so <code>?$</code> can see the text: <code>[y/N]</code>, <code>(y/n)</code>, <code>yes/no</code>, <code>password</code>, <code>passphrase</code>, <code>press enter</code>, a trailing <code>?</code>, plus their French forms. The dialog test runs on the last 12 non-empty lines of the screen, with a regex for agent TUIs (&#34;permission required&#34;, &#34;do you want to proceed&#34;, a <code>❯ 1. Yes</code> menu…) that <code>POSTERM_QUESTION</code> replaces entirely.</p>
+<p>The screen is only captured when <code>window_activity</code> moved, so a quiet wall costs one <code>tmux list-panes</code> per second, total.</p>
+<p><strong>Why.</strong> It works with every program, unmodified: <code>claude</code>, <code>codex</code>, <code>crush</code>, a script, <code>apt upgrade</code>. Nobody has to adopt a protocol for the wall to be useful on day one. &#34;The screen stopped moving and the cursor sits after a question mark&#34; is exactly how a human tells that a terminal waits for them.</p>
+<p><strong>What we refused.</strong> Parsing each agent&#39;s output format, or wrapping agents to intercept their I/O. Formats change every release, and wrappers break TUIs.</p>
+<p><strong>The cost.</strong> It&#39;s a heuristic and it says so. A long silent compile looks idle. A TUI with a new dialog wording looks idle until you add it to the regex. Hence the next section.</p>
+<h2 id="the-filesystem-is-the-ipc">The filesystem is the IPC <a class="hash" href="#the-filesystem-is-the-ipc" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> <code>posterm state question &#34;Delete build/?&#34;</code> or <code>posterm state idle</code>, run from inside a lab, writes one file: <code>$POSTERM_DATA/etat/&lt;lab&gt;</code> holding the state and the note. The engine reads it on the next poll. It overrides the guess, except for a dead pane, until the screen moves again (activity more than 2 s newer than the file), then the file is deleted and guessing resumes.</p>
+<p><strong>Why.</strong> Agents have hooks (&#34;on stop&#34;, &#34;on notification&#34;). A hook can run a command. That&#39;s all the integration needed: no network, no token, no socket, no daemon. The engine already injects <code>POSTERM_LAB</code> and <code>POSTERM_DATA</code> into every lab, so the command knows where to write. It runs before any identity switch and touches nothing but that one file.</p>
+<p><strong>What we refused.</strong> A local HTTP endpoint for hooks. It would need auth, a port, and a client in every hook, all to move a few bytes into a file.</p>
+<p><strong>The cost.</strong> It only works inside a lab started by POSTERM, and the declared state is only as accurate as the hook that sets it.</p>
+<h2 id="one-token-one-operator">One token, one operator <a class="hash" href="#one-token-one-operator" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> POSTERM is built for one operator, so there is exactly one secret.</p>
+<ul>
+<li>The token comes from <code>POSTERM_TOKEN</code>, or is generated once (24 random bytes, hex) into <code>$POSTERM_DATA/token</code> with mode 600.</li>
+<li>Browsers log in once and get an <code>HttpOnly</code>, <code>SameSite=Lax</code> cookie valid for a year, <code>Secure</code> when the request came over TLS. Its value is a SHA-256 derived from the token, never the token itself. Rotate the token and every browser is logged out.</li>
+<li>Spokes send <code>Authorization: Bearer &lt;token&gt;</code>.</li>
+<li>Both comparisons are constant-time. A failed login waits a second.</li>
+<li>Any request that carries an <code>Origin</code> header must come from the hub&#39;s own host, or it&#39;s a 403. That kills CSRF and cross-site WebSocket hijacking in one check.</li>
+<li>Only the static shell and <code>/api/login</code> are public. <code>/api/*</code>, <code>/m/*</code> and <code>/join</code> need auth.</li>
+<li>The hub listens on <code>127.0.0.1:8206</code> by default.</li>
+</ul>
+<p><strong>Why.</strong> The hub hands out a shell on every connected machine. User accounts, roles and an OAuth dance would add attack surface without adding safety for the single person who should be using it. TLS, the IP allowlist and optional client certificates are a reverse proxy&#39;s job, done better by Caddy than by us. <code>config/Caddyfile.example</code> stacks all three and ships a strict CSP: <code>script-src &#39;self&#39;</code>, no inline script anywhere, <code>unsafe-inline</code> for styles only because xterm.js injects its own.</p>
+<p><strong>What we refused.</strong> Multi-user. Sharing your agents&#39; shells with a team is a different product with a different threat model.</p>
+<p><strong>The cost.</strong> Whoever has the token has a shell on every machine. Keep the hub behind the proxy, and run the labs as a dedicated user (below).</p>
+<h2 id="no-build-step-in-the-browser">No build step in the browser <a class="hash" href="#no-build-step-in-the-browser" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> The wall is <code>index.html</code>, <code>style.css</code>, <code>app.js</code> (about a thousand lines of vanilla JS) and a vendored xterm.js with its fit addon. No npm, no bundler, no framework. One <code>EventSource</code> on <code>/api/stream</code> paints the wall. Each open terminal is one WebSocket to the engine.</p>
+<p>The SSE side is deliberately boring. The hub diffs the world once a second and sends a frame only when it changed, plus a comment every 20 s to keep proxies from closing the stream. Each browser has a one-slot channel: a slow client drops the stale frame and gets the latest one. Nothing queues.</p>
+<p>A terminal is the shortest path we could find:</p>
+<pre tabindex="0"><code>xterm.js ──WebSocket──► hub guard ──► route ──► Engine.terminal
+                                                   │
+                                     pty ◄── tmux attach-session -t =&lt;lab&gt;</code></pre>
+<p>Binary frames carry raw bytes both ways. Text frames carry <code>{&#34;cols&#34;:…,&#34;rows&#34;:…}</code> resizes. Each browser terminal is its own <code>tmux attach</code> in its own PTY, so tmux handles several viewers on the same lab exactly like several real terminals.</p>
+<p><strong>Why.</strong> No build means no toolchain to rot, no lockfile to audit, and the code you read is the code that runs. One SSE stream is enough for a wall that changes at most once a second. WebSockets are reserved for the one thing that needs bytes in both directions.</p>
+<p><strong>What we refused.</strong> React and friends, a websocket-for-everything protocol, a terminal emulator of our own.</p>
+<p><strong>The cost.</strong> We write DOM code by hand, and per-browser preferences (lab order, bash on/off, bash height) live in <code>localStorage</code> only.</p>
+<h2 id="the-journal-records-transitions-not-bytes">The journal records transitions, not bytes <a class="hash" href="#the-journal-records-transitions-not-bytes" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> <code>journal.jsonl</code> gets one JSON line per event worth a human&#39;s attention:</p>
+<ul>
+<li>a lab turns <code>question</code>;</li>
+<li>a lab turns <code>idle</code> after at least 10 s of <code>running</code> (real work, not a blip);</li>
+<li>a lab dies with an exit code.</li>
+</ul>
+<p>Each line holds the time, machine, lab, from/to states and a text: the note from <code>posterm state</code>, else the last lines of the screen. The file is append-only; the hub keeps the last 300 events in memory for the log panel.</p>
+<p><strong>Why.</strong> &#34;What happened while I was away&#34; is a list of transitions. Recording terminal output would be a second, worse scrollback. tmux already keeps the real one.</p>
+<p><strong>What we refused.</strong> Logging every byte, metrics, a time-series store.</p>
+<p><strong>The cost.</strong> History is bounded, crudely: past 4 MB (a few hundred bytes per event, so roughly a year of a busy wall), the hub renames it to <code>journal.1.jsonl</code> at startup, keeping one generation. Anything older is gone.</p>
+<h2 id="push-with-a-reply-field">Push, with a Reply field <a class="hash" href="#push-with-a-reply-field" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> The same events trigger Web Push (VAPID keys generated once into <code>push.json</code>). A <code>question</code> notification carries a <strong>Reply</strong> action: type a line in the notification, and the service worker posts it to the lab&#39;s <code>/keys</code> endpoint, Enter included. The app badge counts the yellow post-its. No push is sent for a lab someone is attached to: tmux&#39;s attached client count is the definition of &#34;watching&#34;, and a real <code>tmux attach</code> counts too.</p>
+<p><strong>Why.</strong> The point of the wall is to stop watching terminals. Push finishes the job: the yellow post-it reaches your pocket, and for a yes/no question you answer without opening anything. Typing goes through <code>tmux send-keys -l</code> (literal), then a 150 ms pause before Enter so TUIs can tell typing from a paste.</p>
+<p><strong>What we refused.</strong> Email, chat bots, a third-party notification service. Web Push is standard, free, and its payload goes from the hub to the browser&#39;s push service without anyone else in the loop.</p>
+<p><strong>The cost.</strong> Push needs HTTPS and a browser that supports it. Inline reply depends on the platform&#39;s notification UI.</p>
+<h2 id="a-bash-under-every-lab">A bash under every lab <a class="hash" href="#a-bash-under-every-lab" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> Each lab can have a companion session <code>&lt;id&gt;__sh</code>: a login shell in the lab&#39;s dir, shown under the agent&#39;s terminal. It&#39;s created on demand when the browser opens it, killed with the lab, and it is <strong>not</strong> a lab: not in the registry, not watched, no post-it, no push. <code>exit</code> ends it for good (no <code>remain-on-exit</code>); the next open starts a fresh one. Ids are slugs, so <code>__</code> never collides with another lab.</p>
+<p><strong>Why.</strong> You want <code>git diff</code> while the agent works, in the same dir, without opening another tab or typing into the agent&#39;s prompt.</p>
+<p><strong>What we refused.</strong> Making it a second lab. Its state would pollute the wall and its silence would look like a question.</p>
+<p><strong>The cost.</strong> One more tmux session per lab where you open it.</p>
+<h2 id="uploads-land-whole-or-not-at-all">Uploads land whole or not at all <a class="hash" href="#uploads-land-whole-or-not-at-all" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> Drop files or folders on a lab&#39;s bash and they land in that bash&#39;s <strong>current</strong> directory (<code>#{pane_current_path}</code>), wherever you <code>cd</code>&#39;d.</p>
+<ol>
+<li><code>POST …/sh/check</code> returns that dir and which of the dropped paths already exist there. The browser asks before overwriting anything.</li>
+<li>The browser zips folders itself: native <code>CompressionStream(&#39;deflate-raw&#39;)</code>, a hand-rolled CRC-32, hand-written zip headers. Media and archives are stored, not deflated again.</li>
+<li><code>POST …/sh/upload?dir=…</code> streams a multipart form: a <code>manifest</code> part (<code>{&#34;files&#34;:[…],&#34;dirs&#34;:[…],&#34;unzip&#34;:[…]}</code>), then one <code>file</code> part per path, in order. Plain files go straight to disk. Zips are spooled to a hidden temp file next to their target (<code>archive/zip</code> needs to seek), extracted into <code>&lt;name&gt;/</code>, and not kept.</li>
+<li>Every path, and every entry of every zip, goes through <code>inside()</code> before a byte is written: no <code>..</code>, no absolute path, no backslash, no NUL. Symlinks in zips are skipped, and so are <code>__MACOSX/</code> and <code>.DS_Store</code>. A zip whose entries all sit in a folder named like the zip isn&#39;t nested twice. Executable bits survive.</li>
+<li>The server doesn&#39;t trust <code>dir</code>: it must be the bash&#39;s current dir, or a dir <code>check</code> handed out for this lab in the last 15 minutes (you may <code>cd</code> while the browser zips). Anything else gets a 403.</li>
+<li>Files are opened with <code>O_EXCL</code> unless the user said yes to overwriting. An <code>undo</code> log records every file and top directory the upload created. Fail or cancel at any point and it&#39;s all removed.</li>
+</ol>
+<p><code>Alt</code> + drop sends files raw, no zip, no unpacking. The upload goes through XHR because <code>fetch</code> still can&#39;t report upload progress.</p>
+<p><strong>Why.</strong> Getting a spec, a dataset or a screenshot to the agent is the most common thing you do after typing. Making it a drop on the right terminal removes scp from your day. All-or-nothing matters because a half-unpacked folder in a repo is worse than an error.</p>
+<p><strong>What we refused.</strong> A file manager. One drop target with a visible destination is the whole feature.</p>
+<p><strong>The cost.</strong> No zip64: a zipped folder must stay under 4 GB and 65,535 entries (use <code>Alt</code> + drop beyond that). A file overwritten after your &#34;yes&#34; can&#39;t be restored by a rollback. Reverse proxies often cap request bodies: lift the cap for the upload route only (<code>docs/caddy.md</code>).</p>
+<h2 id="selection-goes-through-osc-52">Selection goes through OSC 52 <a class="hash" href="#selection-goes-through-osc-52" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> tmux runs with <code>mouse on</code>, so a drag in the browser terminal selects <em>in tmux</em>. tmux then sends the selected text to its client as an OSC 52 escape sequence (<code>set-clipboard external</code> is tmux&#39;s default). <code>app.js</code> registers an xterm.js handler for OSC 52, decodes it, and pops a two-item menu where the mouse was released: <strong>copy</strong>, or <strong>save as .md</strong> (named <code>&lt;lab&gt;-&lt;date&gt;-&lt;time&gt;.md</code>). It only pops if a mouse button came up in that terminal within the last 3 s, so a program writing OSC 52 on its own doesn&#39;t trigger it. Shift+drag selects in xterm.js instead and opens the same menu. A click elsewhere or Esc closes it without copying.</p>
+<p><strong>Why.</strong> Before this, a drag selected text that never left tmux: it was copied nowhere. Turning mouse mode off would lose wheel scrolling through tmux history. Catching the sequence tmux already emits fixes it with zero change on the server side.</p>
+<p><strong>What we refused.</strong> Turning tmux mouse mode off; copy-on-select (it clobbers your clipboard every time you click-drag to read).</p>
+<p><strong>The cost.</strong> Clipboard writes need a secure context. Without HTTPS the browser may refuse, and there&#39;s an <code>execCommand</code> fallback that sometimes works.</p>
+<h2 id="one-dictionary-per-language-everywhere">One dictionary per language, everywhere <a class="hash" href="#one-dictionary-per-language-everywhere" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> Every user-facing string (UI, push, CLI usage, logs, API errors) lives in <code>src/web/i18n/&lt;lang&gt;.json</code>, picked by <code>POSTERM_LANG</code> (<code>en</code> by default, <code>fr</code> available). A missing key falls back to English, and startup logs which keys each language lacks.</p>
+<ul>
+<li>Go uses <code>T(key, &#34;name&#34;, value…)</code>.</li>
+<li>The page is filled once at startup: <code>{{t:key}}</code>, <code>{{LANG}}</code> and the title are replaced in <code>index.html</code> and the manifest, HTML- or JSON-escaped as the file needs. No flash of untranslated text.</li>
+<li>The browser gets the rest as <code>/i18n.js</code> (<code>window.I18N = {…}</code>), a real file so the CSP never needs an inline script. Plurals go through <code>Intl.PluralRules</code>.</li>
+<li>The service worker has no window and no dictionary, so the hub puts the words it needs (the Reply label and placeholder) in each push payload.</li>
+</ul>
+<p><strong>Why.</strong> One source of truth for three runtimes. Adding a language is adding a file.</p>
+<p><strong>What we refused.</strong> gettext, an i18n library, or per-runtime string tables that drift apart.</p>
+<p><strong>The cost.</strong> The language is per installation, not per browser.</p>
+<h2 id="dropping-privileges-before-tmux">Dropping privileges before tmux <a class="hash" href="#dropping-privileges-before-tmux" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> Labs run as the hub&#39;s user. Started as root (systemd, sudo), <code>becomeUser()</code> switches the whole process to <code>POSTERM_USER</code> / <code>POSTERM_GROUP</code> before anything touches tmux or the data dir: it resets <code>HOME</code>, <code>USER</code>, <code>LOGNAME</code> and <code>SHELL</code>, clears the XDG variables, hands the data dir and its files over, then calls <code>setgroups</code>, <code>setgid</code> and <code>setuid</code>, in that order. A service account whose shell is <code>nologin</code> gets <code>/bin/bash</code>, because labs need a real shell. With both variables empty, posterm stays whoever started it.</p>
+<p>A tmux server belongs to one user. If a server owned by someone else still holds the socket, the hub refuses to start and prints the command to fix it. The owner is read from the tmux server&#39;s process, not the socket file, so a <code>chown</code> of the data dir can&#39;t fool it. A stale socket with nobody behind it is simply removed.</p>
+<p><strong>Why.</strong> systemd starts services as root, and the <code>.env</code> holding the token can stay root-only: it&#39;s read before the switch, and the labs never see it. The labs, meanwhile, run as an account that can write to the projects and nothing else (<code>config/create-usergroup.sh</code> creates one, idempotently).</p>
+<p><strong>What we refused.</strong> Running agents as root by default. It&#39;s allowed, it&#39;s documented, and it&#39;s your call. There&#39;s also a real trap in it: codex&#39;s sandbox is a user namespace, and in there root loses its override on files owned by other users, so it can only write to <code>/tmp</code>.</p>
+<p><strong>The cost.</strong> Changing identity means stopping the running labs, since their tmux server belongs to the old user. Agents must be installed and logged in as the labs&#39; user.</p>
+<h2 id="the-mac-package-touches-no-code">The Mac package touches no code <a class="hash" href="#the-mac-package-touches-no-code" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> <code>macos/build.sh</code> cross-compiles both darwin binaries from Linux and zips them with a double-click installer. The installer:</p>
+<ul>
+<li>checks macOS 12 or later and picks the Apple silicon or Intel binary;</li>
+<li>installs tmux with Homebrew if needed (and Homebrew, if you agree);</li>
+<li>puts <code>~/.local/bin/posterm</code> in place, unquarantined and ad-hoc signed;</li>
+<li>writes <code>~/.posterm/.env</code> once, in French if the Mac is;</li>
+<li>registers a LaunchAgent: started at login, restarted on crash, <code>AbandonProcessGroup</code> so updates never kill the labs, <code>SHELL</code> set to your login shell and a PATH that includes Homebrew;</li>
+<li>opens Safari with the token in the clipboard.</li>
+</ul>
+<p>The &#34;app&#34; is Safari&#39;s <strong>File → Add to Dock</strong>: its own window, icon and notifications.</p>
+<p><strong>Why.</strong> The binary already runs on macOS unchanged. Everything Mac-specific is packaging, so it stays in <code>macos/</code>, in bash 3.2 (the one macOS ships).</p>
+<p><strong>What we refused.</strong> Tauri or Wails. A native webview means Rust or cgo, a Mac to build on, and no Web Push inside an embedded webview, so notifications would have to be rewritten natively. All of that buys a window Safari already gives us.</p>
+<p><strong>The cost.</strong> The binaries aren&#39;t notarized (that takes a paid Apple account), so the first launch needs &#34;Open Anyway&#34; or <code>bash install.command</code>. macOS guards Desktop, Documents, Downloads and iCloud Drive against background processes, so keep projects elsewhere.</p>
+<h2 id="what-we-will-not-build">What we will not build <a class="hash" href="#what-we-will-not-build" aria-label="link to this section">#</a></h2>
+<ul>
+<li><strong>A unified chat.</strong> You talk to agents in their terminal. That&#39;s what terminals are for, and every agent&#39;s own UI is better at its own job than a lowest-common-denominator chat window.</li>
+<li><strong>An agent loop of our own.</strong> POSTERM runs your agents; it isn&#39;t one. No planner, no tool layer, no prompts.</li>
+<li><strong>A wiki as memory.</strong> Agents have their own memory files, and your repo is the real memory.</li>
+<li><strong>POSTERM as a tool for agents.</strong> It&#39;s for the human in the loop.</li>
+<li><strong>Budgets and quotas.</strong> Turns and tokens are the agent&#39;s business.</li>
+</ul>
+<h2 id="rules-we-keep">Rules we keep <a class="hash" href="#rules-we-keep" aria-label="link to this section">#</a></h2>
+<ul>
+<li>One binary, one port.</li>
+<li>No database. Files and tmux hold everything.</li>
+<li>No JS build step, and no inline script.</li>
+<li>Installation-specific values (name, domain, token, paths, machine names) live in <code>.env</code>, never in code.</li>
+<li>Labs must survive the hub: restarts, crashes, updates.</li>
+<li>Every user-facing string goes in both dictionaries.</li>
+<li>Nothing gets written or overwritten without the user seeing where.</li>
+</ul>
+<h2 id="read-the-code">Read the code <a class="hash" href="#read-the-code" aria-label="link to this section">#</a></h2>
+<div class="table" tabindex="0"><table><thead><tr><th>file</th><th>role</th></tr></thead><tbody>
+<tr><td><code>src/main.go</code></td><td>CLI dispatch, <code>.env</code> loading, <code>posterm state</code></td></tr>
+<tr><td><code>src/engine.go</code></td><td>one machine: registry, tmux, state detection, HTTP API, terminals, uploads</td></tr>
+<tr><td><code>src/hub.go</code></td><td>auth, static wall, spoke tunnels, SSE, journal, Web Push</td></tr>
+<tr><td><code>src/user.go</code></td><td>privilege drop, tmux socket ownership check</td></tr>
+<tr><td><code>src/i18n.go</code></td><td>language selection, <code>T()</code>, <code>E()</code></td></tr>
+<tr><td><code>src/web/app.js</code></td><td>the wall, terminals, selection menu, drops and the browser-side zip</td></tr>
+<tr><td><code>src/web/sw.js</code></td><td>service worker: notifications and inline reply</td></tr>
+<tr><td><code>src/web/i18n/*.json</code></td><td>every string the program says</td></tr>
+<tr><td><code>config/</code></td><td>systemd unit, user creation script, locked-down Caddyfile</td></tr>
+<tr><td><code>macos/</code></td><td>the Mac package: build, install, uninstall</td></tr>
+</tbody></table></div>
+</article>
+</div>
+
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <p class="logo">POSTERM<span>.sh</span></p>
+    <p>MIT — © 2026 L3DLP · <a href="https://github.com/l3dlp/posterm.sh/blob/main/LICENSE" rel="noopener">MIT license</a> · <a href="https://github.com/l3dlp/posterm.sh#readme" rel="noopener">README</a> · <a href="../design/">Design</a> · <a href="https://github.com/l3dlp/posterm.sh" rel="noopener">GitHub</a></p>
+  </div>
+</footer>
+</body>
+</html>

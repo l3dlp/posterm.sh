@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POSTERM — a wall of post-its, every one a real terminal</title>
+<meta name="description" content="Run claude, codex, crush or bash in tmux and read all of them on one wall: one post-it per job, colored by whether it needs you. One Go binary, no database, MIT.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://posterm.sh/">
+<link rel="alternate" hreflang="en" href="https://posterm.sh/">
+<link rel="alternate" hreflang="fr" href="https://posterm.sh/fr/">
+<link rel="alternate" hreflang="x-default" href="https://posterm.sh/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="POSTERM">
+<meta property="og:title" content="POSTERM — a wall of post-its, every one a real terminal">
+<meta property="og:description" content="Run claude, codex, crush or bash in tmux and read all of them on one wall: one post-it per job, colored by whether it needs you. One Go binary, no database, MIT.">
+<meta property="og:url" content="https://posterm.sh/">
+<meta property="og:image" content="https://posterm.sh/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A wall of colored post-its, each one a live terminal running a coding agent.">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="POSTERM — a wall of post-its, every one a real terminal">
+<meta name="twitter:description" content="Run claude, codex, crush or bash in tmux and read all of them on one wall: one post-it per job, colored by whether it needs you. One Go binary, no database, MIT.">
+<meta name="twitter:image" content="https://posterm.sh/og.png">
+<script src="assets/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap bar">
+    <a class="logo" href="./" aria-label="POSTERM, Home">POSTERM<span>.sh</span></a>
+    <nav aria-label="Site">
+      <a href="./#how">How it works</a>
+      <a href="./#install">Install</a>
+      <a href="design/">Design</a>
+      <a href="https://github.com/l3dlp/posterm.sh" rel="noopener">GitHub</a>
+      <a class="lang" href="fr/" hreflang="fr" lang="fr" title="Version française">FR</a>
+    </nav>
+  </div>
+</header>
+<main id="main">
+<section class="hero wrap">
+  <p class="kicker">post-it + terminal = <strong>POSTERM</strong></p>
+  <h1>An agent job is a terminal that <em>runs on its own.</em></h1>
+  <p class="lede">That's it. That's the whole idea. <code>claude</code>, <code>codex</code>, <code>crush</code> or plain <code>bash</code> run in tmux, because tmux solved persistence decades ago. POSTERM puts all of them on one wall you can read in half a second, from your desk or your phone.</p>
+  <div class="install" id="install">
+    <pre class="cmd"><code><span class="ps" aria-hidden="true">$ </span><span data-copy-src>curl -fsSL https://posterm.sh/install | sh</span></code></pre>
+    <button type="button" class="copy" data-copy data-done="copied">copy</button>
+  </div>
+  <p class="fine">Linux and macOS · one static Go binary · needs <code>tmux</code> ≥ 3.1 · <a href="install">read the script first</a> — it's short on purpose.</p>
+</section>
+
+<figure class="shot wrap wide">
+  <picture>
+    <source media="(max-width: 600px)" srcset="img/phone.png" width="780" height="1173">
+    <img src="img/wall.png" width="1920" height="707" alt="The POSTERM wall: two machines, six labs as post-its. Red ones are running with their screen tail visible, yellow ones wait on a question, a green one is idle, a grey one is dead." fetchpriority="high">
+  </picture>
+</figure>
+
+<section class="band wrap" id="how">
+  <p class="label">01 · the problem</p>
+  <h2>A dozen tabs, and the one stuck on <code>[y/N]</code> is the one you didn't look at.</h2>
+  <p>Run more than three coding agents at once and you know how it goes. So: every job is a <strong>lab</strong>, a directory plus a command. Every lab is a post-it. The color tells you whether it needs you. Nothing else on the screen matters.</p>
+  <ul class="notes" role="list">
+    <li class="note r"><b>running</b><span>The screen is moving. Leave it alone.</span></li>
+    <li class="note y"><b>question</b><span>Silent and stuck on a prompt or a dialog. Your turn.</span></li>
+    <li class="note g"><b>idle</b><span>Silent, nothing asked. Done, or waiting for orders.</span></li>
+    <li class="note k"><b>dead</b><span>No process left. The exit code is on the post-it.</span></li>
+  </ul>
+</section>
+
+<section class="band wrap">
+  <p class="label">02 · what you actually get</p>
+  <h2>A wall, a real terminal behind every post-it, and nothing in between.</h2>
+
+  <div class="feature">
+    <div class="copy-col">
+      <h3>The wall</h3>
+      <ul>
+        <li>Every post-it shows the live tail of its screen, or the exact question the agent asked. The tab title and the app badge count the yellow ones.</li>
+        <li>The state counters are filters. The search box greps name, dir and command. Labs are grouped by machine.</li>
+        <li><strong>Broadcast</strong>: tick some post-its, type one line, every one of them gets it, Enter included. <code>continue</code>. <code>run the tests</code>. <code>commit</code>. Done.</li>
+        <li><strong>Log</strong>: every question, every lab that settles after real work, every death, with a counter of what happened while you weren't looking.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="feature stack">
+    <figure class="shot"><img src="img/lab.png" width="1920" height="1147" loading="lazy" alt="An open lab: the agent's terminal on top, the rail of labs on the left, the lab's own bash at the bottom showing git status."></figure>
+    <div class="copy-col">
+      <h3>A lab, opened</h3>
+      <ul>
+        <li>Click a post-it: you're in the <strong>real terminal</strong>, xterm.js on tmux. Not a log viewer, not a chat window. Close the tab, kill the browser, restart the hub: the job doesn't care.</li>
+        <li><strong>Select text, get a menu where you let go</strong>: copy, or save as <code>.md</code>. Click anywhere else and nothing is copied.</li>
+        <li>The <strong>rail</strong> lists every lab in its color. <code>Ctrl+Tab</code> walks the labs, <code>Alt+Q</code> jumps to the next question, <code>Alt+M</code> goes back to the wall.</li>
+        <li><strong>A bash in every lab</strong>, at the bottom, in the lab's dir, for the <code>git diff</code> you want while the agent works.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="feature split flip">
+    <figure class="shot"><img src="img/drop.png" width="1200" height="360" loading="lazy" alt="Dragging a file over the lab's bash: an overlay shows the exact directory the file will land in."></figure>
+    <div class="copy-col">
+      <h3>Drop files on it</h3>
+      <ul>
+        <li>Drag files <em>or whole directories</em> onto the bash. They land in <strong>its cwd</strong>, wherever you <code>cd</code>'d. The target is shown before you let go.</li>
+        <li>Directories are zipped in the browser, streamed once, unpacked server-side. A dropped <code>.zip</code> is unpacked into <code>&lt;name&gt;/</code>.</li>
+        <li>Nothing gets overwritten without asking. <code>Esc</code> aborts at any point, and an aborted or failed upload rolls back: nothing written.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="feature split">
+    <figure class="shot phone"><img src="img/phone.png" width="780" height="1173" loading="lazy" alt="The wall on a phone: the same post-its, stacked two per row."></figure>
+    <div class="copy-col">
+      <h3>Away from the desk</h3>
+      <ul>
+        <li>Install it as an app (PWA). <strong>Web Push</strong> fires when a lab asks something or settles.</li>
+        <li>Where the browser allows it, the notification has a <strong>Reply</strong> field that types straight into the lab.</li>
+        <li>No push for a lab you're already watching.</li>
+        <li>On a phone, a key bar gives you <code>esc</code>, <code>tab</code>, <code>^C</code>, the arrows and Enter.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="feature">
+    <div class="copy-col">
+      <h3>Exact state, when guessing isn't good enough</h3>
+      <p>The colors come from a heuristic: the screen moved, or the cursor line looks like a prompt, or a known dialog is on screen. If you want them exact, have the lab say so. Wire it into your agent's hooks:</p>
+<pre class="term"><code><span class="ps">$ </span>posterm state question "Delete build/?"   <span class="c"># yellow, with the text on the post-it</span>
+<span class="ps">$ </span>posterm state idle                        <span class="c"># green</span></code></pre>
+      <p>No network, no token: it writes a file. The filesystem is the IPC.</p>
+    </div>
+  </div>
+</section>
+
+<section class="band wrap">
+  <p class="label">03 · a day on the wall</p>
+  <h2>Your eyes go where the color is.</h2>
+  <ol class="day" role="list">
+    <li><b>Morning</b><p>Open the wall. Whatever ran overnight is green, yellow or grey, and the log tells you what happened while you slept. Yellow first.</p></li>
+    <li><b>Day</b><p>Five, ten labs at once, on one machine or several. Broadcast <code>run the tests</code> to everything green, review the diff in the lab's bash, drop the spec file on it.</p></li>
+    <li><b>Away</b><p>The phone buzzes: a lab has a question. Answer from the notification, without unlocking a laptop.</p></li>
+    <li><b>Night</b><p>Start the long ones and close the browser. The labs live in tmux on the machine, not in your tab. They'll be there tomorrow.</p></li>
+  </ol>
+</section>
+
+<section class="band wrap">
+  <p class="label">04 · one binary, four faces</p>
+  <h2>Same binary on every machine.</h2>
+<pre class="term big"><code><span class="ps">$ </span>posterm                       <span class="c"># the hub: web wall + this machine's labs</span>
+<span class="ps">$ </span>posterm join https://hub…     <span class="c"># a spoke: publish this machine's labs to the hub</span>
+<span class="ps">$ </span>posterm lab ~/code/api claude <span class="c"># spawn a lab here, from the shell</span>
+<span class="ps">$ </span>posterm state question "…"    <span class="c"># from inside a lab: say where it is</span></code></pre>
+  <div class="feature split">
+    <figure class="shot"><img src="img/arch.png" width="1600" height="900" loading="lazy" alt="Architecture: your browser talks HTTPS to one hub; spokes on other machines dial out to the hub over one WebSocket; every machine runs its labs in its own tmux."></figure>
+    <div class="copy-col">
+      <h3>More machines</h3>
+      <p>A spoke dials <strong>out</strong>: one WebSocket to the hub. No port to open, NAT and home routers are not your problem.</p>
+      <p>Inside the tunnel (yamux) the hub speaks plain HTTP to the spoke, because every machine exposes the exact same tiny API and the hub is nothing but a reverse proxy to <code>/m/&lt;machine&gt;/…</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="band wrap">
+  <p class="label">05 · get it</p>
+  <h2>Install it, open it, hit <span class="kbd">+ lab</span>.</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>Linux, one line</h3>
+<pre class="term"><code><span class="ps">$ </span>curl -fsSL https://posterm.sh/install | sh
+<span class="ps">$ </span>posterm   <span class="c"># http://127.0.0.1:8206</span></code></pre>
+      <p>First start generates an access token, prints it and keeps it. Open the page, paste the token, hit <strong>+ lab</strong>: pick a dir and a command. For a hub that stays up, the README has a systemd unit and a locked-down Caddyfile.</p>
+    </div>
+    <div class="col">
+      <h3>macOS, no compiler involved</h3>
+      <ol>
+        <li>Unzip, double-click <code>install.command</code>: it fetches tmux (Homebrew), starts the hub at login and opens Safari with the token in your clipboard.</li>
+        <li>Paste the token.</li>
+        <li><strong>File → Add to Dock</strong>. That's the app: own window, own icon, own notifications.</li>
+      </ol>
+      <p>Labs survive updates and closed windows. The same one-liner works on a Mac.</p>
+    </div>
+    <div class="col">
+      <h3>From source</h3>
+<pre class="term"><code><span class="ps">$ </span>git clone https://github.com/l3dlp/posterm.sh
+<span class="ps">$ </span>cd posterm.sh && bin/build.sh</code></pre>
+      <p>Go and tmux. That's the dependency list.</p>
+    </div>
+  </div>
+</section>
+
+<section class="band wrap">
+  <p class="label">06 · what it won't do</p>
+  <h2>Less, on purpose.</h2>
+  <ul class="nos" role="list">
+    <li><b>No agent framework.</b> Your agents are the programs you already run.</li>
+    <li><b>No job queue.</b> tmux is the queue, and the persistence layer.</li>
+    <li><b>No database.</b> A JSON registry and an append-only journal.</li>
+    <li><b>No chat window.</b> You talk to agents in their terminal. That's what terminals are for.</li>
+    <li><b>No JS build.</b> Vanilla JS, a vendored xterm.js, embedded in the binary.</li>
+    <li><b>No account, no SaaS.</b> Your machines, one token, one operator.</li>
+  </ul>
+  <p class="more"><a class="btn" href="design/">Why it's built this way →</a> <a class="btn ghost" href="https://github.com/l3dlp/posterm.sh" rel="noopener">Source on GitHub</a></p>
+</section>
+
+<section class="band wrap dog">
+  <p class="label">07 · eaten daily</p>
+  <p class="big">Built by the person who uses it, every day, morning, noon and night, since the first commit. Not a demo that grew up: it's the tool, and it gets fixed the day it gets in the way.</p>
+  <p class="fine">This site was written by an agent running in a POSTERM lab, on that wall.</p>
+</section>
+
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <p class="logo">POSTERM<span>.sh</span></p>
+    <p>MIT — © 2026 L3DLP · <a href="https://github.com/l3dlp/posterm.sh/blob/main/LICENSE" rel="noopener">MIT license</a> · <a href="https://github.com/l3dlp/posterm.sh#readme" rel="noopener">README</a> · <a href="design/">Design</a> · <a href="https://github.com/l3dlp/posterm.sh" rel="noopener">GitHub</a></p>
+  </div>
+</footer>
+</body>
+</html>

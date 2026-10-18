@@ -1,0 +1,36 @@
+<!doctype html><meta charset="utf-8">
+<!-- posterm.sh social preview, 1200x630. Rendered to site/og.png by site/build.sh. -->
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root { --acc:#ccff00; --dim:#8c8c8c; --ink:#141414; }
+html, body { width: 1200px; height: 630px; background: #000; color: #fff; font-family: 'DejaVu Sans Mono', monospace; overflow: hidden; }
+.card { position: relative; width: 1200px; height: 630px; padding: 56px 60px; }
+h1 { font-size: 46px; line-height: 1.14; letter-spacing: -.01em; max-width: 640px; }
+h1 em { font-style: normal; color: var(--acc); }
+.sub { margin-top: 22px; font-size: 19px; color: #cfcfcf; line-height: 1.5; max-width: 560px; }
+.sub b { color: var(--acc); }
+.cmd { position: absolute; left: 60px; bottom: 110px; border: 2px solid var(--acc); padding: 12px 16px; font-size: 18px; box-shadow: 8px 8px 0 rgba(204,255,0,.18); }
+.cmd span { color: var(--acc); }
+.brand { position: absolute; left: 60px; bottom: 40px; font-weight: bold; letter-spacing: .14em; font-size: 24px; }
+.brand span { color: var(--acc); }
+.notes { position: absolute; right: 56px; top: 64px; width: 430px; display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.n { color: var(--ink); height: 210px; padding: 18px 18px; box-shadow: 8px 8px 0 #262626; position: relative; font-size: 13px; line-height: 1.45; display: flex; flex-direction: column; }
+.n:nth-child(1) { transform: rotate(-2deg); } .n:nth-child(2) { transform: rotate(1.5deg); } .n:nth-child(3) { transform: rotate(1deg); } .n:nth-child(4) { transform: rotate(-1.4deg); }
+.n b { font-size: 19px; display: block; margin-bottom: 4px; }
+.n i { font-style: normal; opacity: .6; font-size: 12px; border-bottom: 1px dashed rgba(0,0,0,.3); padding-bottom: 8px; margin-bottom: 8px; display: block; }
+.n s { text-decoration: none; margin-top: auto; font-weight: bold; letter-spacing: .1em; font-size: 12px; }
+.n::after { content: ""; position: absolute; right: 0; bottom: 0; border-style: solid; border-width: 0 0 20px 20px; border-color: transparent transparent rgba(0,0,0,.55) transparent; }
+.r { background: #ff8f85; } .y { background: #ffe45c; } .g { background: #b6f09c; } .k { background: #bdb9b0; }
+</style>
+<div class="card">
+  <h1>An agent job is a terminal that <em>runs on its own.</em></h1>
+  <p class="sub">One post-it per job, colored by whether it needs you. <b>claude, codex, crush, bash</b> in tmux. One Go binary, no database.</p>
+  <div class="cmd"><span>$</span> curl -fsSL posterm.sh/install | sh</div>
+  <div class="brand">POSTERM<span>.sh</span></div>
+  <div class="notes">
+    <div class="n r"><b>billing-api</b><i>claude</i>* Edit src/money.ts<br>&nbsp;-&gt; 141 passed<br>* Edit src/tax.ts<s>● RUNNING</s></div>
+    <div class="n y"><b>eval-suite</b><i>evals</i><strong>Checkpoint 12 beats 11. Promote it?</strong><s>QUESTION</s></div>
+    <div class="n g"><b>docs-site</b><i>crush</i>fixed 17 links<br>✓ build ok<s>IDLE</s></div>
+    <div class="n k"><b>db-migration</b><i>migrate</i>ERROR: column "vat_id"<s>DEAD · EXIT 1</s></div>
+  </div>
+</div>

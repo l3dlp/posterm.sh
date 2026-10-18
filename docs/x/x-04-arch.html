@@ -1,0 +1,48 @@
+<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.box { position: absolute; border: 2px solid var(--fg); padding: 18px 22px; font-size: 19px; line-height: 1.45; background: #000; }
+.box b { display: block; font-size: 24px; margin-bottom: 6px; }
+.box.acc { border-color: var(--acc); box-shadow: 10px 10px 0 rgba(204,255,0,.18); }
+.box.acc b { color: var(--acc); }
+.dim { color: var(--dim); }
+.lab { display: inline-block; width: 14px; height: 14px; margin-right: 6px; vertical-align: -1px; }
+svg { position: absolute; inset: 0; }
+.lbl { position: absolute; font-size: 16px; color: var(--dim); background: #000; padding: 0 6px; }
+.facts { position: absolute; left: 72px; right: 72px; bottom: 100px; display: flex; gap: 46px; font-size: 20px; }
+.facts span::before { content: "✓ "; color: var(--acc); font-weight: bold; }
+</style>
+<div class="card">
+  <h1 style="font-size:48px">No agent loop, no job queue: <em>tmux is the queue.</em></h1>
+  <svg width="1600" height="900"><g stroke="#ccff00" stroke-width="2" fill="none">
+    <path d="M330 420 H560"/><path d="M552 412 l8 8 -8 8"/>
+    
+    <path d="M1130 300 H1040" stroke-dasharray="7 6"/><path d="M1130 520 H1040" stroke-dasharray="7 6"/>
+    <path d="M1048 292 l-8 8 8 8"/><path d="M1048 512 l-8 8 8 8"/>
+  </g></svg>
+  <div class="box" style="left:72px;top:330px;width:258px">
+    <b>you</b>browser, phone<br>or installed PWA
+    <div class="dim" style="margin-top:8px">live wall (SSE)<br>xterm.js<br>Web Push</div>
+  </div>
+  <div class="lbl" style="left:370px;top:388px">HTTPS</div>
+  <div class="box acc" style="left:560px;top:236px;width:480px">
+    <b>hub · posterm</b>
+    one Go binary, one port<br>
+    auth · journal · push · reverse proxy<br><br>
+    <span class="dim">tmux (private socket)</span><br>
+    <span class="lab" style="background:var(--encours)"></span>billing-api · claude<br>
+    <span class="lab" style="background:var(--question)"></span>landing · codex<br>
+    <span class="lab" style="background:var(--pose)"></span>docs-site · crush
+  </div>
+  <div class="box" style="left:1130px;top:236px;width:398px">
+    <b>spoke · posterm join</b>
+    <span class="lab" style="background:var(--encours)"></span>train-run<br>
+    <span class="lab" style="background:var(--question)"></span>eval-suite
+  </div>
+  <div class="box" style="left:1130px;top:470px;width:398px">
+    <b>spoke · posterm join</b>
+    <span class="lab" style="background:var(--pose)"></span>nightly-ops
+  </div>
+  <div class="lbl" style="left:1060px;top:600px;width:470px">spokes dial out over one WebSocket (yamux):<br>no open port, works behind NAT</div>
+  <div class="facts"><span>labs survive tab, browser, hub restart</span><span>no database</span><span>no JS build</span><span>vanilla JS</span></div>
+  <div class="brand">POSTERM<span>.sh</span></div><div class="tag">same tiny HTTP API on every machine</div>
+</div>
