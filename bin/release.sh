@@ -41,7 +41,8 @@ say "$out:"
 (cd "$out" && ls -lh | tail -n +2 | awk '{print "  " $5 "\t" $9}')
 cat <<EOF
 
-Publish (needs gh and a pushed tag):
+Pushing the tag is enough: .github/workflows/release.yml rebuilds and publishes.
   git tag $version && git push origin $version
-  gh release create $version $out/* --title "POSTERM $version" --notes "…"
+By hand instead (needs gh):
+  gh release create $version $out/* --title "POSTERM $version" --generate-notes
 EOF

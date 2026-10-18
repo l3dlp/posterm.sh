@@ -1,0 +1,21 @@
+# Every push and pull request: gofmt, vet, tests, and a build.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l src site/gen)" || { gofmt -l src site/gen; exit 1; }
+      - run: go vet ./...
+      - run: go test ./src
+      - run: CGO_ENABLED=0 go build -trimpath -buildvcs=false -o /dev/null ./src
