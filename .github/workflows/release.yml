@@ -2,11 +2,18 @@
 # https://posterm.sh/install downloads (4 static binaries, the Mac zip, SHA256SUMS).
 #
 #   git tag v0.1.0 && git push origin v0.1.0
+#
+# To (re)publish the assets of an existing tag: Actions → release → Run workflow.
 name: release
 
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish (vX.Y.Z)"
+        required: true
 
 permissions:
   contents: write # create the release and upload its assets
@@ -14,16 +21,26 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       # Same script as a local release: gofmt, vet, tests, then dist/<tag>/.
-      - run: bin/release.sh "$GITHUB_REF_NAME"
+      - run: bin/release.sh "$TAG"
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+        # A release made by hand on github.com for this tag just gets the assets.
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/"$GITHUB_REF_NAME"/* \
-            --title "POSTERM $GITHUB_REF_NAME" --generate-notes --verify-tag
+          tag=$TAG
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/"$tag"/* --clobber
+          else
+            gh release create "$tag" dist/"$tag"/* \
+              --title "POSTERM $tag" --generate-notes --verify-tag
+          fi
