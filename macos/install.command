@@ -216,8 +216,10 @@ fi
 
 # --- done ---------------------------------------------------------------------
 copied=
-if [ -s "$data/token" ]; then
-	pbcopy <"$data/token" && copied=1
+token_file="$data/secrets/token"
+[ -s "$token_file" ] || token_file="$data/token" # hubs before 0.1.1
+if [ -s "$token_file" ]; then
+	pbcopy <"$token_file" && copied=1
 fi
 open -a Safari "$url" 2>/dev/null || open "$url"
 
@@ -232,7 +234,7 @@ ok "   The Dock app keeps its own cookies: paste the token once more there."
 ok "3. Hit + lab. Keep projects outside Desktop, Documents, Downloads and iCloud"
 ok "   (macOS guards those folders), e.g. in ~/code."
 ok ""
-ok "Token again:  pbcopy < ~/.posterm/token"
+ok "Token again:  pbcopy < ~/.posterm/secrets/token"
 ok "Update:       run this installer again; labs keep running."
 ok "Remove:       uninstall.command"
 pause

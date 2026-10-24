@@ -195,7 +195,7 @@ polling.
 ## Spokes dial out
 
 **The choice.** `posterm join https://hub.example.org` opens one outbound
-WebSocket to `/join`, authenticated with `Authorization: Bearer <token>`.
+WebSocket to `/join`, authenticated with `Authorization: Bearer <join token>`.
 Both ends wrap that WebSocket in a yamux session. The **hub is the yamux
 client**: every stream it opens is a fresh connection to the spoke, on which
 the spoke runs `http.Serve` with its engine handler.
@@ -286,21 +286,30 @@ state is only as accurate as the hook that sets it.
 ## One token, one operator
 
 **The choice.** POSTERM is built for one operator, so there is exactly one
-secret.
+operator secret. Spokes get a narrower one of their own.
 
 - The token comes from `POSTERM_TOKEN`, or is generated once (24 random
-  bytes, hex) into `$POSTERM_DATA/token` with mode 600.
+  bytes, hex) into `$POSTERM_DATA/secrets/token` with mode 600.
+- The join token comes from `POSTERM_JOIN_TOKEN`, or is generated once into
+  `$POSTERM_DATA/secrets/join-token`. It opens `/join` and nothing else: a
+  compromised spoke can't read the wall or type into another machine's labs
+  through the API. (The operator token still opens `/join`, for spokes set up
+  before the join token existed.)
 - Browsers log in once and get an `HttpOnly`, `SameSite=Lax` cookie valid for
   a year, `Secure` when the request came over TLS. Its value is a SHA-256
   derived from the token, never the token itself. Rotate the token and every
   browser is logged out.
-- Spokes send `Authorization: Bearer <token>`.
+- Spokes send `Authorization: Bearer <join token>`, and only over TLS: a
+  spoke refuses a cleartext hub URL unless it is this very machine
+  (`POSTERM_INSECURE=1` overrides).
 - Both comparisons are constant-time. A failed login waits a second.
 - Any request that carries an `Origin` header must come from the hub's own
   host, or it's a 403. That kills CSRF and cross-site WebSocket hijacking in
   one check.
-- Only the static shell and `/api/login` are public. `/api/*`, `/m/*` and
-  `/join` need auth.
+- Only the static shell and `/api/login` are public. `/api/*` and `/m/*`
+  need the operator's auth, `/join` the join token.
+- None of these secrets ever reaches a lab: see
+  [Dropping privileges before tmux](#dropping-privileges-before-tmux).
 - The hub listens on `127.0.0.1:8206` by default.
 
 **Why.** The hub hands out a shell on every connected machine. User accounts,
@@ -314,8 +323,10 @@ only because xterm.js injects its own.
 **What we refused.** Multi-user. Sharing your agents' shells with a team is a
 different product with a different threat model.
 
-**The cost.** Whoever has the token has a shell on every machine. Keep the
-hub behind the proxy, and run the labs as a dedicated user (below).
+**The cost.** Whoever has the operator token has a shell on every machine.
+Keep the hub behind the proxy, and run the labs as a dedicated user (below).
+A spoke that joins under another machine's name still takes that name's
+place on the wall: the join token is per hub, not per machine.
 
 ## No build step in the browser
 
@@ -514,9 +525,9 @@ that drift apart.
 **The choice.** Labs run as the hub's user. Started as root (systemd, sudo),
 `becomeUser()` switches the whole process to `POSTERM_USER` /
 `POSTERM_GROUP` before anything touches tmux or the data dir: it resets
-`HOME`, `USER`, `LOGNAME` and `SHELL`, clears the XDG variables, hands the
-data dir and its files over, then calls `setgroups`, `setgid` and `setuid`,
-in that order. A service account whose shell is `nologin` gets `/bin/bash`,
+`HOME`, `USER`, `LOGNAME` and `SHELL`, clears the XDG variables, reads the
+hub's secrets (still as root), hands the data dir's files over, then calls
+`setgroups`, `setgid` and `setuid`, in that order. A service account whose shell is `nologin` gets `/bin/bash`,
 because labs need a real shell. With both variables empty, posterm stays
 whoever started it.
 
@@ -525,6 +536,33 @@ holds the socket, the hub refuses to start and prints the command to fix it.
 The owner is read from the tmux server's process, not the socket file, so a
 `chown` of the data dir can't fool it. A stale socket with nobody behind it
 is simply removed.
+
+**Keeping the secrets out of the labs.** The labs are agents. Agents read
+web pages, issues and READMEs written by strangers, and a prompt injection is
+one paragraph away. So a lab must not be able to read anything that would let
+it drive the hub, and with it every other lab:
+
+- **The environment.** The tmux server, hence every lab, gets the hub's
+  environment minus whatever came from `.env` and every `POSTERM_*` setting.
+  A lab gets `POSTERM_LAB` and `POSTERM_DATA` and nothing else of ours. At
+  startup the hub also strips those keys from the global environment of a tmux
+  server started by an older version.
+- **The files.** The operator token, the join token and the VAPID key pair
+  live in `$POSTERM_DATA/secrets/`, owned by root, mode 700, files 600. The
+  hub reads them before the switch and keeps them in memory. `push.json` only
+  keeps the subscriptions.
+- **The directory.** The data dir itself stays root's, group-writable by the
+  labs' group and sticky (`01770`). The hub, now that user, can create and
+  replace its own files in it. Nobody but root can rename or remove
+  `secrets/`: in a directory the labs owned, a `mv` of it would have needed
+  nothing more than write access to the data dir.
+- **Planted secrets.** A `secrets/` that isn't a root-owned directory (a lab
+  made it, or it's a symlink) is moved aside and never read. Secrets are
+  regenerated instead of trusted.
+
+Started as the labs' own user (no `POSTERM_USER`), the hub and the labs are
+the same account and nothing on disk can be hidden from them. That's the
+setup for a laptop, not for a hub that agents share.
 
 **Why.** systemd starts services as root, and the `.env` holding the token
 can stay root-only: it's read before the switch, and the labs never see it.
@@ -537,7 +575,10 @@ sandbox is a user namespace, and in there root loses its override on files
 owned by other users, so it can only write to `/tmp`.
 
 **The cost.** Changing identity means stopping the running labs, since their
-tmux server belongs to the old user. Agents must be installed and logged in
+tmux server belongs to the old user. Labs that were already running when you
+upgraded from 0.1.0 still carry whatever environment they started with:
+rotate the token (a new `POSTERM_TOKEN`, or delete `secrets/token`; then
+restart) and restart them. Agents must be installed and logged in
 as the labs' user.
 
 ## The Mac package touches no code
@@ -601,6 +642,7 @@ processes, so keep projects elsewhere.
 | `src/engine.go`             | one machine: registry, tmux, state detection, HTTP API, terminals, uploads   |
 | `src/hub.go`                | auth, static wall, spoke tunnels, SSE, journal, Web Push                     |
 | `src/user.go`               | privilege drop, tmux socket ownership check                                  |
+| `src/secrets.go`            | tokens and VAPID keys: root-only, read before the drop, kept in memory       |
 | `src/i18n.go`               | language selection, `T()`, `E()`                                             |
 | `src/web/app.js`            | the wall, terminals, selection menu, drops and the browser-side zip          |
 | `src/web/sw.js`             | service worker: notifications and inline reply                               |

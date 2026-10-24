@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
@@ -65,12 +64,14 @@ type Event struct {
 }
 
 type Hub struct {
-	data   string
-	name   string
-	title  string // POSTERM_TITLE: the one name shown everywhere (page, PWA, notifications)
-	token  string
-	cookie string
-	local  *Engine
+	data      string
+	name      string
+	title     string // POSTERM_TITLE: the one name shown everywhere (page, PWA, notifications)
+	token     string // operator: browsers and the API
+	joinToken string // spokes: /join only
+	cookie    string
+	vapid     vapidKeys // in memory only, see secrets.go
+	local     *Engine
 
 	mu       sync.Mutex
 	machines map[string]*machine
@@ -89,10 +90,11 @@ func yamuxConfig() *yamux.Config {
 	return cfg
 }
 
-func runHub(engine *Engine, data string) {
+func runHub(engine *Engine, data string, sec Secrets) {
 	h := &Hub{data: data, name: machineName(), title: cfgOr("TITLE", "POSTERM"), local: engine, localHandler: engine.Handler(),
 		machines: map[string]*machine{}, prev: map[string]LabState{}, streams: map[chan []byte]bool{}}
-	h.token = h.loadToken()
+	h.token, h.joinToken = sec.Token, sec.JoinToken
+	h.vapid = vapidKeys{Public: sec.VAPIDPublic, Private: sec.VAPIDPrivate}
 	sum := sha256.Sum256([]byte("monia-cookie:" + h.token)) // pre-rename salt: changing it logs every browser out
 	h.cookie = hex.EncodeToString(sum[:])
 	h.loadJournal()
@@ -143,7 +145,7 @@ func runHub(engine *Engine, data string) {
 		defer h.mu.Unlock()
 		c.JSON(200, h.journal)
 	})
-	r.GET("/api/push/key", func(c *gin.Context) { c.JSON(200, gin.H{"key": h.push.Public}) })
+	r.GET("/api/push/key", func(c *gin.Context) { c.JSON(200, gin.H{"key": h.vapid.Public}) })
 	r.POST("/api/push/sub", h.subscribe)
 	r.POST("/api/push/test", func(c *gin.Context) {
 		h.send(gin.H{"title": h.title, "body": T("push.test_body"), "tag": "test", "url": "/"})
@@ -159,7 +161,9 @@ func runHub(engine *Engine, data string) {
 
 	addr := cfgOr("ADDR", "127.0.0.1:8206")
 	log.Print(T("log.hub", "name", h.name, "addr", addr, "data", data))
-	log.Fatal(http.ListenAndServe(addr, h.guard(root)))
+	// No write timeout: SSE and terminals are long-lived on purpose.
+	srv := &http.Server{Addr: addr, Handler: h.guard(root), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
+	log.Fatal(srv.ListenAndServe())
 }
 
 // titled reads an embedded web file and fills in {{TITRE}}, {{LANG}} and every
@@ -186,25 +190,6 @@ func jsonError(w http.ResponseWriter, code int, msg string) {
 
 // ---------------------------------------------------------------- auth
 
-// loadToken: one operator, one secret. From POSTERM_TOKEN, else generated once.
-func (h *Hub) loadToken() string {
-	if t := cfg("TOKEN"); t != "" {
-		return t
-	}
-	path := filepath.Join(h.data, "token")
-	if b, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(b)) >= 16 {
-		return string(bytes.TrimSpace(b))
-	}
-	raw := make([]byte, 24)
-	rand.Read(raw)
-	t := hex.EncodeToString(raw)
-	if err := os.WriteFile(path, []byte(t+"\n"), 0o600); err != nil {
-		log.Fatal(err)
-	}
-	log.Print(T("log.token", "token", t, "path", path))
-	return t
-}
-
 func same(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }
 
 func (h *Hub) authed(r *http.Request) bool {
@@ -213,8 +198,20 @@ func (h *Hub) authed(r *http.Request) bool {
 			return true
 		}
 	}
-	bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	return ok && same(bearer, h.token)
+	return same(h.bearer(r), h.token)
+}
+
+func (h *Hub) bearer(r *http.Request) string {
+	b, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return b
+}
+
+// joinAuthed lets a spoke in with the join token, which opens /join and
+// nothing else, or with the operator token (spokes set up before the join
+// token existed).
+func (h *Hub) joinAuthed(r *http.Request) bool {
+	b := h.bearer(r)
+	return b != "" && (same(b, h.joinToken) || same(b, h.token))
 }
 
 // guard lets the static shell and the login through, and nothing else. Any
@@ -228,7 +225,15 @@ func (h *Hub) guard(next http.Handler) http.Handler {
 			}
 		}
 		p := r.URL.Path
-		private := strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/m/") || p == "/join"
+		if p == "/join" {
+			if !h.joinAuthed(r) {
+				jsonError(w, 401, T("err.token_needed"))
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+		private := strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/m/")
 		if private && p != "/api/login" && !h.authed(r) {
 			jsonError(w, 401, T("err.token_needed"))
 			return
@@ -345,6 +350,9 @@ func runSpoke(engine *Engine, hub, token string) {
 	u, err := url.Parse(hub)
 	if err != nil || u.Host == "" {
 		log.Fatal(T("log.bad_hub_url", "url", hub))
+	}
+	if !secureHub(u) && cfg("INSECURE") != "1" {
+		log.Fatal(T("log.hub_cleartext", "url", hub))
 	}
 	u.Path, u.RawQuery = "/join", "name="+url.QueryEscape(machineName())
 	handler := engine.Handler()
@@ -547,23 +555,16 @@ func (h *Hub) record(ev Event) {
 
 // ---------------------------------------------------------------- web push
 
+// pushState is what push.json keeps: subscriptions are not secret, the VAPID
+// key pair is (it lives in secrets/vapid.json).
 type pushState struct {
-	Public  string                 `json:"public"`
-	Private string                 `json:"private"`
-	Origin  string                 `json:"origin"` // host the operator subscribed from
-	Subs    []webpush.Subscription `json:"subs"`
+	Origin string                 `json:"origin"` // host the operator subscribed from
+	Subs   []webpush.Subscription `json:"subs"`
 }
 
 func (h *Hub) loadPush() {
 	if b, err := os.ReadFile(filepath.Join(h.data, "push.json")); err == nil {
 		json.Unmarshal(b, &h.push)
-	}
-	if h.push.Public == "" {
-		var err error
-		if h.push.Private, h.push.Public, err = webpush.GenerateVAPIDKeys(); err != nil {
-			log.Fatal(err)
-		}
-		h.savePush()
 	}
 }
 
@@ -597,7 +598,7 @@ func (h *Hub) send(payload gin.H) {
 	for _, sub := range st.Subs {
 		go func() {
 			res, err := webpush.SendNotification(body, &sub, &webpush.Options{
-				Subscriber: "https://" + st.Origin, VAPIDPublicKey: st.Public, VAPIDPrivateKey: st.Private,
+				Subscriber: "https://" + st.Origin, VAPIDPublicKey: h.vapid.Public, VAPIDPrivateKey: h.vapid.Private,
 				TTL: 3600, Urgency: webpush.UrgencyHigh})
 			if err != nil {
 				log.Printf("push : %v", err)
@@ -612,4 +613,18 @@ func (h *Hub) send(payload gin.H) {
 			}
 		}()
 	}
+}
+
+// secureHub: the token crosses the network in every join, so it travels over
+// TLS, unless the hub is this very machine.
+func secureHub(u *url.URL) bool {
+	if u.Scheme == "https" || u.Scheme == "wss" {
+		return true
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

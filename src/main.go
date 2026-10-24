@@ -41,6 +41,10 @@ func cfgOr(key, def string) string {
 	return def
 }
 
+// dotEnvKeys are the names loadDotEnv set: the hub's configuration, which
+// the labs never inherit (see labEnv).
+var dotEnvKeys = map[string]bool{}
+
 // loadDotEnv reads KEY=VALUE lines; the real environment always wins.
 func loadDotEnv(path string) {
 	f, err := os.Open(path)
@@ -58,6 +62,7 @@ func loadDotEnv(path string) {
 		k, v = strings.TrimSpace(k), strings.Trim(strings.TrimSpace(v), `"'`)
 		if _, set := os.LookupEnv(k); !set {
 			os.Setenv(k, v)
+			dotEnvKeys[k] = true
 		}
 	}
 }
@@ -118,7 +123,14 @@ func main() {
 		return
 	}
 
-	data := becomeUser()
+	// The hub reads its secrets while it may still be root, before the data
+	// dir is handed over to the labs' user: see secrets.go.
+	var sec Secrets
+	data := becomeUser(func(data string) {
+		if cmd == "" {
+			sec = loadSecrets(data)
+		}
+	})
 	engine, err := NewEngine(data)
 	if err != nil {
 		log.Fatal(err)
@@ -126,7 +138,7 @@ func main() {
 
 	switch cmd {
 	case "":
-		runHub(engine, data)
+		runHub(engine, data, sec)
 	case "join":
 		hub := cfg("HUB")
 		if len(args) > 0 {

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/coder/websocket"
@@ -99,7 +100,9 @@ func NewEngine(data string) (*Engine, error) {
 	if quiet < 2 {
 		quiet = 2
 	}
-	return &Engine{data: data, quiet: quiet, dialog: re, states: map[string]*LabState{}, drops: map[string]time.Time{}}, nil
+	e := &Engine{data: data, quiet: quiet, dialog: re, states: map[string]*LabState{}, drops: map[string]time.Time{}}
+	e.scrubServer()
+	return e, nil
 }
 
 // ---------------------------------------------------------------- tmux
@@ -109,13 +112,44 @@ func (e *Engine) socket() string { return filepath.Join(e.data, "tmux.sock") }
 
 func (e *Engine) tmuxCmd(args ...string) *exec.Cmd {
 	cmd := exec.Command("tmux", append([]string{"-u", "-S", e.socket(), "-f", filepath.Join(e.data, "tmux.conf")}, args...)...)
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "TMUX=") && !strings.HasPrefix(kv, "TERM=") {
-			cmd.Env = append(cmd.Env, kv)
+	cmd.Env = append(labEnv(os.Environ()), "TERM=xterm-256color")
+	return cmd
+}
+
+// labEnv is the environment the tmux server, hence every lab, inherits: ours
+// minus the hub's own configuration. Whatever came from .env (the token, among
+// others) and every POSTERM_/MONIA_ setting stays in the hub; a lab gets
+// POSTERM_LAB and POSTERM_DATA from start(), nothing else of ours.
+func labEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		if k == "TMUX" || k == "TERM" || hubOnly(k) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+func hubOnly(key string) bool {
+	return dotEnvKeys[key] || strings.HasPrefix(key, "POSTERM_") || strings.HasPrefix(key, "MONIA_")
+}
+
+// scrubServer removes the hub's configuration from the global environment of
+// a tmux server started by an older version, which handed it everything. Labs
+// started before keep what they had: rotate the token after upgrading.
+func (e *Engine) scrubServer() {
+	out, err := e.tmux("show-environment", "-g")
+	if err != nil {
+		return // no server yet: it will start with labEnv
+	}
+	for _, line := range strings.Split(out, "\n") {
+		k, _, _ := strings.Cut(strings.TrimPrefix(line, "-"), "=")
+		if k != "" && hubOnly(k) {
+			e.tmux("set-environment", "-g", "-u", k)
 		}
 	}
-	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
-	return cmd
 }
 
 func (e *Engine) tmux(args ...string) (string, error) {
@@ -188,6 +222,23 @@ func (e *Engine) loadLabs() []Lab {
 	return labs
 }
 
+// lockLabs serialises every read-modify-write of labs.json across processes:
+// the hub's API and a `posterm lab` typed in a shell edit the same file.
+func (e *Engine) lockLabs() func() {
+	f, err := os.OpenFile(e.labsFile()+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return func() {}
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return func() {}
+	}
+	return func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}
+}
+
 func (e *Engine) saveLabs(labs []Lab) error {
 	b, _ := json.MarshalIndent(labs, "", "  ")
 	tmp := e.labsFile() + ".tmp"
@@ -228,6 +279,7 @@ func (e *Engine) Create(name, dir, cmd string) (Lab, error) {
 	if name = strings.TrimSpace(name); name == "" {
 		name = filepath.Base(dir)
 	}
+	unlock := e.lockLabs()
 	labs := e.loadLabs()
 	base := strings.Trim(notSlug.ReplaceAllString(strings.ToLower(name), "-"), "-")
 	if base == "" {
@@ -245,13 +297,16 @@ func (e *Engine) Create(name, dir, cmd string) (Lab, error) {
 		id = base + "-" + strconv.Itoa(n)
 	}
 	l := Lab{ID: id, Name: name, Dir: dir, Cmd: strings.TrimSpace(cmd)}
-	if err := e.saveLabs(append(labs, l)); err != nil {
+	err = e.saveLabs(append(labs, l))
+	unlock()
+	if err != nil {
 		return Lab{}, err
 	}
 	return l, e.start(l)
 }
 
 func (e *Engine) Delete(id string) error {
+	defer e.lockLabs()()
 	labs := e.loadLabs()
 	for i, l := range labs {
 		if l.ID == id {
@@ -338,14 +393,16 @@ func (e *Engine) poll() {
 	panes := e.panes()
 	now := time.Now().Unix()
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	// poll is the only writer of e.states: it may read the map without the
+	// lock, works on copies (readers hold pointers to the old values under the
+	// lock), and takes the lock only to swap the result in. Forking tmux while
+	// holding it would stall Snapshot and every upload check for as long.
 	next := make(map[string]*LabState, len(labs))
 	order := make([]string, 0, len(labs))
 	for _, l := range labs {
-		s := e.states[l.ID]
-		if s == nil {
-			s = &LabState{Since: now}
+		s := &LabState{Since: now}
+		if old := e.states[l.ID]; old != nil {
+			*s = *old
 		}
 		s.Lab = l
 		p, alive := panes[l.ID]
@@ -382,7 +439,9 @@ func (e *Engine) poll() {
 		next[l.ID] = s
 		order = append(order, l.ID)
 	}
+	e.mu.Lock()
 	e.states, e.order = next, order
+	e.mu.Unlock()
 }
 
 func (e *Engine) Run() {
@@ -684,10 +743,44 @@ func extract(u *undo, f *zip.File, dst string, flags int, perm os.FileMode) (int
 
 // undo remembers what an upload created, so that a cancelled or failed one can
 // take it all back. Files it overwrote (only after a yes) cannot come back.
-type undo struct{ files, dirs []string }
+// base, when set, is the directory every write must stay in once symlinks
+// are resolved.
+type undo struct {
+	base        string
+	files, dirs []string
+}
+
+// resolvesInside: the deepest existing part of p, symlinks resolved, is base
+// or under it. inside() checks the names; this checks the disk, where a link
+// planted in the tree (by a lab, by an earlier drop) could point anywhere.
+func resolvesInside(base, p string) bool {
+	root, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		return false
+	}
+	d := p
+	for {
+		if _, err := os.Lstat(d); err == nil {
+			break
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return false
+		}
+		d = parent
+	}
+	real, err := filepath.EvalSymlinks(d)
+	if err != nil {
+		return false
+	}
+	return real == root || strings.HasPrefix(real, root+string(os.PathSeparator))
+}
 
 // mkdir is MkdirAll that remembers the topmost directory it had to create.
 func (u *undo) mkdir(p string) error {
+	if u.base != "" && !resolvesInside(u.base, p) {
+		return E("err.bad_path", "path", strconv.Quote(p))
+	}
 	top := ""
 	for d := p; ; d = filepath.Dir(d) {
 		if _, err := os.Lstat(d); err == nil || filepath.Dir(d) == d {
@@ -706,9 +799,12 @@ func (u *undo) mkdir(p string) error {
 
 // open is OpenFile that remembers the files it brought into existence.
 func (u *undo) open(p string, flags int, perm os.FileMode) (*os.File, error) {
+	if u.base != "" && !resolvesInside(u.base, filepath.Dir(p)) {
+		return nil, E("err.bad_path", "path", strconv.Quote(p))
+	}
 	_, err := os.Lstat(p)
 	fresh := err != nil
-	f, err := os.OpenFile(p, flags, perm)
+	f, err := os.OpenFile(p, flags|syscall.O_NOFOLLOW, perm) // never write through a link
 	if err == nil && fresh {
 		u.files = append(u.files, p)
 	}
@@ -784,7 +880,7 @@ func inside(dir, rel string) (string, error) {
 // unzip is a zip (a folder zipped by the browser, or a .zip dropped as is): it
 // is unpacked into a directory named after it, and not kept.
 func receive(req *http.Request, dir string, overwrite bool) (n int, size int64, err error) {
-	u := &undo{}
+	u := &undo{base: dir}
 	defer func() {
 		if err != nil { // cancelled, or failed midway: a drop lands whole or not at all
 			u.rollback()

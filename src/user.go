@@ -18,8 +18,9 @@ import (
 // environment or the .env), so that systemd can start us as root while the labs
 // run as whoever the installation chose: posterm, www-data… or root itself. It
 // must run before anything touches tmux or the data dir, and it returns the
-// data dir, resolved with the new user's HOME.
-func becomeUser() string {
+// data dir, resolved with the new user's HOME. prepare runs on the data dir
+// before it is handed over and before privileges are dropped.
+func becomeUser(prepare func(data string)) string {
 	name, group := cfg("USER"), cfg("GROUP")
 	me, err := user.Current()
 	if err != nil {
@@ -28,6 +29,7 @@ func becomeUser() string {
 	if name == "" && group == "" {
 		data := dataDir() // stay who we are
 		checkSocket(data, os.Getuid())
+		prepare(data)
 		return data
 	}
 	if name == "" {
@@ -48,6 +50,7 @@ func becomeUser() string {
 	if u.Uid == me.Uid && gid == me.Gid {
 		data := dataDir()
 		checkSocket(data, os.Getuid())
+		prepare(data)
 		return data
 	}
 	if me.Uid != "0" {
@@ -66,6 +69,7 @@ func becomeUser() string {
 	uid, _ := strconv.Atoi(u.Uid)
 	g, _ := strconv.Atoi(gid)
 	data := dataDir()
+	prepare(data)
 	handOver(data, uid, g)
 
 	groups := []int{g}
@@ -134,12 +138,24 @@ func tmuxOwner(sock string) int {
 	return int(st.Sys().(*syscall.Stat_t).Uid)
 }
 
-// handOver gives the data dir to the new user: the dir itself and the regular
-// files POSTERM keeps there, nothing deeper. Never the tmux socket: it belongs to
-// its server.
+// handOver gives the data dir to the new user: the regular files POSTERM keeps
+// there and etat/, nothing deeper. Never the tmux socket: it belongs to its
+// server. Never secrets/: it stays root's.
+//
+// The data dir itself stays root's, group-writable by the labs' group and
+// sticky (01770): the hub (now that user) can create, replace and remove its
+// own files in it, while nobody but root can rename or remove secrets/. In a
+// directory the labs owned, a mv of secrets/ would only need write access to
+// the data dir.
 func handOver(data string, uid, gid int) {
 	checkSocket(data, uid)
 	if err := os.MkdirAll(filepath.Join(data, "etat"), 0o700); err != nil {
+		log.Fatal(err)
+	}
+	if err := os.Lchown(data, 0, gid); err != nil {
+		log.Fatal(err)
+	}
+	if err := os.Chmod(data, 0o770|os.ModeSticky); err != nil {
 		log.Fatal(err)
 	}
 	chown := func(p string) {
@@ -148,7 +164,9 @@ func handOver(data string, uid, gid int) {
 		}
 	}
 	for _, dir := range []string{data, filepath.Join(data, "etat")} {
-		chown(dir)
+		if dir != data {
+			chown(dir)
+		}
 		entries, _ := os.ReadDir(dir)
 		for _, en := range entries {
 			if en.Type().IsRegular() {

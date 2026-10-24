@@ -157,9 +157,10 @@ bin/build.sh           # gofmt + vet, binaire statique, sauvegarde l'ancien
 ./posterm                # http://127.0.0.1:8206
 ```
 
-Le premier démarrage génère un jeton d'accès, l'affiche et le garde dans
-`$POSTERM_DATA/token`. Ouvre la page, colle le jeton, clique **+ labo** : choisis
-un dossier (avec complétion) et une commande (les récentes d'abord).
+Le premier démarrage génère un jeton d'accès et un jeton de jonction pour les
+rayons, les affiche et les garde dans `$POSTERM_DATA/secrets/`. Ouvre la page,
+colle le jeton d'accès, clique **+ labo** : choisis un dossier (avec
+complétion) et une commande (les récentes d'abord).
 
 `bin/build.sh` garde des sauvegardes horodatées dans `bin/backup/` (7 jours) et
 finit par `systemctl restart posterm`. Pas en service ? Supprime cette ligne.
@@ -185,7 +186,7 @@ Pas à pas et pièges (macOS protège Bureau/Documents) :
 Le même binaire, partout :
 
 ```sh
-POSTERM_TOKEN=<jeton du hub> ./posterm join https://hub.example.org
+POSTERM_TOKEN=<jeton de jonction du hub> ./posterm join https://hub.example.org
 ```
 
 Le rayon appelle **vers l'extérieur** : un WebSocket vers le hub. Aucun port à
@@ -226,10 +227,12 @@ chemins) vit là. Jamais dans le code, jamais dans ce dépôt.
 | `POSTERM_USER`     | —                   | lancé en root, posterm devient cet utilisateur (les labos aussi)|
 | `POSTERM_GROUP`    | groupe de l'utilisateur | groupe principal correspondant                            |
 | `POSTERM_ADDR`     | `127.0.0.1:8206`    | adresse d'écoute du hub                                       |
-| `POSTERM_TOKEN`    | généré              | l'unique jeton (hub : accès web ; rayon : accès au hub)       |
+| `POSTERM_TOKEN`    | généré              | hub : le jeton de l'opérateur (web, API) ; rayon : le jeton de jonction du hub |
+| `POSTERM_JOIN_TOKEN` | généré            | hub : le jeton des rayons ; ouvre `/join`, rien d'autre       |
+| `POSTERM_INSECURE` | —                   | `1` : laisse `posterm join` envoyer son jeton à un hub distant sans TLS |
 | `POSTERM_HUB`      | —                   | URL du hub, pour `posterm join`                                 |
 | `POSTERM_NAME`     | nom d'hôte          | le nom de la machine sur le mur                               |
-| `POSTERM_DATA`     | `~/.posterm`          | registre, journal, socket tmux, clés push                     |
+| `POSTERM_DATA`     | `~/.posterm`          | registre, journal, socket tmux, abonnements push, `secrets/`  |
 | `POSTERM_QUIET`    | `3`                 | secondes de silence avant qu'un labo ne soit plus « en cours »|
 | `POSTERM_QUESTION` | `src/engine.go`     | regex des dialogues qui valent question (remplace le défaut)  |
 
@@ -330,9 +333,26 @@ posterm ALL=(root) NOPASSWD: /usr/bin/systemctl restart projet-a.service, /usr/b
 Le hub distribue un shell sur chaque machine connectée. C'est son travail. Il
 est fait pour un seul opérateur, et ne prétend pas le contraire.
 
-- Un seul jeton, comparé en temps constant. Cookie `HttpOnly` pour les
-  navigateurs, `Bearer` pour les rayons. Pas de jeton, pas de données : une page
-  vide et une case de connexion.
+- Un seul jeton d'opérateur, comparé en temps constant, cookie `HttpOnly` pour
+  les navigateurs. Pas de jeton, pas de données : une page vide et une case de
+  connexion.
+- Les rayons se joignent avec leur propre jeton, qui ouvre `/join` et rien
+  d'autre, et `posterm join` refuse de l'envoyer en clair à un hub distant.
+- **Les labos ne voient jamais les secrets du hub.** Ce sont des agents, ils
+  lisent ce que des inconnus ont écrit, et une injection de prompt tient en un
+  paragraphe.
+  - Rien du `.env` et aucun réglage `POSTERM_*` n'arrive dans
+    l'environnement d'un labo.
+  - Les jetons et les clés push vivent dans `$POSTERM_DATA/secrets/`, réservé
+    à root, lus avant que le hub ne lâche ses privilèges, gardés en mémoire
+    ensuite.
+  - Le dossier de données reste à root, avec le sticky bit : un labo ne peut
+    pas écarter `secrets/` pour y glisser le sien.
+  - C'est vrai quand le hub démarre en root avec un `POSTERM_USER`. Démarré
+    sous l'utilisateur des labos, il n'y a plus personne à qui les cacher.
+- Mise à jour depuis 0.1.0 : les labos déjà lancés gardent l'environnement
+  qu'ils avaient. Change le jeton (un nouveau `POSTERM_TOKEN`, ou
+  `rm $POSTERM_DATA/secrets/token` ; puis redémarre) et relance les labos.
 - Toute requête avec un `Origin` étranger est refusée (CSRF, détournement de
   WebSocket).
 - Le hub écoute sur `127.0.0.1` par défaut. TLS est le travail du reverse proxy,
@@ -384,6 +404,7 @@ go.mod, go.sum   le module Go (les seuls fichiers Go à la racine)
 src/main.go      les quatre commandes, lecture du .env
 src/i18n.go      POSTERM_LANG, T() : les dictionnaires, pour Go et le navigateur
 src/user.go      l'identité des labos (POSTERM_USER / POSTERM_GROUP)
+src/secrets.go   jetons et clés push, hors de portée des labos
 src/engine.go    une machine : registre, tmux, détection d'état, API, terminaux, envois
 src/engine_test.go  go test ./src : confinement des chemins, zips, cibles d'envoi, config
 src/hub.go       le hub : jeton, tunnels des rayons, journal, flux SSE, push

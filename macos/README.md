@@ -56,7 +56,7 @@ Nothing outside your home folder, apart from `tmux` and Homebrew.
   also grant **Full Disk Access** to `~/.local/bin/posterm` (System Settings →
   Privacy & Security; in the file picker, Cmd+Shift+G and paste the path). That
   grant has to be redone after each update.
-- **Token lost?** `pbcopy < ~/.posterm/token` puts it back in the clipboard.
+- **Token lost?** `pbcopy < ~/.posterm/secrets/token` puts it back in the clipboard.
 - **French?** Set `POSTERM_LANG=fr` in `~/.posterm/.env` (the installer already
   does it if your Mac is in French), then restart the hub (below).
 - **Exact state from your agents' hooks:** `posterm state question` /

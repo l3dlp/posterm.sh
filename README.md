@@ -139,9 +139,10 @@ bin/build.sh           # gofmt + vet, static build, backs up the old binary
 ./posterm                # http://127.0.0.1:8206
 ```
 
-First start generates an access token, prints it and keeps it in
-`$POSTERM_DATA/token`. Open the page, paste the token, hit **+ lab**: pick a dir
-(with completion) and a command (recent ones first).
+First start generates an access token and a join token for spokes, prints them
+and keeps them in `$POSTERM_DATA/secrets/`. Open the page, paste the access
+token, hit **+ lab**: pick a dir (with completion) and a command (recent ones
+first).
 
 `bin/build.sh` keeps timestamped backups in `bin/backup/` (7 days) and ends with
 `systemctl restart posterm`. Not running it as a service? Delete that line.
@@ -166,7 +167,7 @@ Desktop/Documents): [`macos/README.md`](macos/README.md).
 Same binary, everywhere:
 
 ```sh
-POSTERM_TOKEN=<hub token> ./posterm join https://hub.example.org
+POSTERM_TOKEN=<hub join token> ./posterm join https://hub.example.org
 ```
 
 The spoke dials **out**: one WebSocket to the hub. No port to open, NAT and
@@ -206,10 +207,12 @@ lives there. Never in the code, never in this repo.
 | `POSTERM_USER`     | —                | started as root, posterm becomes this user (and so do labs)     |
 | `POSTERM_GROUP`    | the user's group | matching primary group                                        |
 | `POSTERM_ADDR`     | `127.0.0.1:8206` | hub listen address                                            |
-| `POSTERM_TOKEN`    | generated        | the one token (hub: web access; spoke: access to the hub)     |
+| `POSTERM_TOKEN`    | generated        | hub: the operator token (web, API); spoke: the hub's join token |
+| `POSTERM_JOIN_TOKEN` | generated      | hub: the token spokes join with; opens `/join`, nothing else  |
+| `POSTERM_INSECURE` | —                | `1`: let `posterm join` send its token to a non-TLS remote hub  |
 | `POSTERM_HUB`      | —                | hub URL, for `posterm join`                                     |
 | `POSTERM_NAME`     | hostname         | the machine's name on the wall                                |
-| `POSTERM_DATA`     | `~/.posterm`       | registry, journal, tmux socket, push keys                     |
+| `POSTERM_DATA`     | `~/.posterm`       | registry, journal, tmux socket, push subscriptions, `secrets/` |
 | `POSTERM_QUIET`    | `3`              | seconds of silence before a lab stops being "running"         |
 | `POSTERM_QUESTION` | `src/engine.go`  | regex of dialogs that count as a question (replaces default)  |
 
@@ -303,8 +306,23 @@ posterm ALL=(root) NOPASSWD: /usr/bin/systemctl restart project-a.service, /usr/
 The hub hands out a shell on every connected machine. That is the job. It is
 built for one operator, and it doesn't pretend otherwise.
 
-- One token, compared in constant time. `HttpOnly` cookie for browsers,
-  `Bearer` for spokes. No token, no data: you get an empty page and a login box.
+- One operator token, compared in constant time, `HttpOnly` cookie for
+  browsers. No token, no data: you get an empty page and a login box.
+- Spokes join with their own token, which opens `/join` and nothing else, and
+  `posterm join` refuses to send it in cleartext to a remote hub.
+- **The labs never see the hub's secrets.** They're agents, they read things
+  strangers wrote, and a prompt injection is one paragraph away.
+  - Nothing from `.env` and no `POSTERM_*` setting reaches a lab's
+    environment.
+  - The tokens and the push keys live in `$POSTERM_DATA/secrets/`, root-only,
+    read before the hub drops privileges, kept in memory after.
+  - The data dir stays root's and sticky, so a lab can't move `secrets/`
+    aside and plant its own.
+  - This holds when the hub starts as root with a `POSTERM_USER`. Started as
+    the labs' own user, there is nothing left to hide them from.
+- Upgrading from 0.1.0: labs started before kept the environment they had.
+  Rotate the token (a new `POSTERM_TOKEN`, or `rm $POSTERM_DATA/secrets/token`;
+  then restart) and restart the labs.
 - Any request with a foreign `Origin` is refused (CSRF, WebSocket hijacking).
 - The hub listens on `127.0.0.1` by default. TLS is the reverse proxy's job, and
   so is the IP allowlist.
@@ -353,6 +371,7 @@ go.mod, go.sum   the Go module (the only Go files at the root)
 src/main.go      the four commands, .env loading
 src/i18n.go      POSTERM_LANG, T(): the dictionaries, for Go and the browser
 src/user.go      the labs' identity (POSTERM_USER / POSTERM_GROUP)
+src/secrets.go   tokens and push keys, out of the labs' reach
 src/engine.go    one machine: lab registry, tmux, state detection, API, terminals, uploads
 src/engine_test.go  go test ./src: path confinement, zips, upload targets, config
 src/hub.go       the hub: token, spoke tunnels, journal, SSE stream, push

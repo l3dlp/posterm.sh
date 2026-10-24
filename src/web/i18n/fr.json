@@ -146,10 +146,14 @@
 
   "log.hub": "hub « {name} » sur http://{addr} — données dans {data}",
   "log.token": "jeton d'accès généré : {token}  (conservé dans {path})",
+  "log.join_token": "jeton de jonction généré pour les rayons : {token}  (conservé dans {path}). Sur chaque rayon : POSTERM_TOKEN=<celui-ci> posterm join <url-du-hub>. Il ouvre /join et rien d'autre.",
+  "log.secrets_rejected": "{path} n'est pas à nous (mauvais propriétaire ou pas un dossier) : déplacé vers {aside}, jamais utilisé. Changer le jeton si un labo a pu le déposer.",
+  "log.secret_moved": "{from} déplacé dans {to} : les labos ne peuvent plus le lire",
   "log.spoke_up": "rayon « {name} » connecté",
   "log.spoke_down": "rayon « {name} » déconnecté",
   "log.bad_hub_url": "URL de hub invalide : {url}",
-  "log.spoke_refused": "le hub refuse ce rayon (HTTP {code}) : vérifier POSTERM_TOKEN et POSTERM_NAME",
+  "log.hub_cleartext": "refus d'envoyer le jeton en clair à {url}. Utiliser https:// (ou POSTERM_INSECURE=1 si c'est vraiment voulu).",
+  "log.spoke_refused": "le hub refuse ce rayon (HTTP {code}) : vérifier POSTERM_TOKEN (le jeton de jonction du hub) et POSTERM_NAME.",
   "log.hub_down": "hub injoignable ({err}), nouvel essai dans {wait}",
   "log.spoke_linked": "rayon « {name} » relié à {host}",
   "log.tunnel_lost": "tunnel coupé, reconnexion",
@@ -161,7 +165,7 @@
 
   "cli.usage": "{title} — le mur de labos\n\n  posterm                       lance le hub (mur web + labos de cette machine)\n  posterm join [url-du-hub]     publie les labos de cette machine vers un hub (POSTERM_HUB)\n  posterm lab <dossier> [cmd…]  ajoute et lance un labo ici (cmd vide = shell)\n  posterm etat <question|pose> [texte…]   depuis un labo : signale son état\n                                (alias : posterm state <question|idle>)\n\nConfiguration par variables d'environnement ou fichier .env — voir .env.example\n",
   "cli.etat_usage": "usage, depuis un labo : posterm etat <question|pose> [texte…]",
-  "cli.join_needs": "il faut l'URL du hub (argument ou POSTERM_HUB) et son jeton (POSTERM_TOKEN)",
+  "cli.join_needs": "il faut l'URL du hub (argument ou POSTERM_HUB) et son jeton de jonction (POSTERM_TOKEN)",
   "cli.lab_started": "labo « {id} » lancé dans {dir}\n  l'ouvrir ici : tmux -S {sock} attach -t {id}\n",
 
   "sel.copy": "copier",

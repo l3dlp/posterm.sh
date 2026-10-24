@@ -146,10 +146,14 @@
 
   "log.hub": "hub \"{name}\" on http://{addr}, data in {data}",
   "log.token": "generated access token: {token}  (kept in {path})",
+  "log.join_token": "generated join token for spokes: {token}  (kept in {path}). On each spoke: POSTERM_TOKEN=<this> posterm join <hub-url>. It opens /join and nothing else.",
+  "log.secrets_rejected": "{path} is not ours (wrong owner or not a directory): moved to {aside}, never trusted. Rotate the token if a lab could have planted it.",
+  "log.secret_moved": "moved {from} into {to}: the labs can't read it anymore",
   "log.spoke_up": "spoke \"{name}\" up",
   "log.spoke_down": "spoke \"{name}\" down",
   "log.bad_hub_url": "bad hub URL: {url}",
-  "log.spoke_refused": "hub refused this spoke (HTTP {code}). Check POSTERM_TOKEN and POSTERM_NAME.",
+  "log.hub_cleartext": "refusing to send the token in cleartext to {url}. Use https:// (or set POSTERM_INSECURE=1 if you really mean it).",
+  "log.spoke_refused": "hub refused this spoke (HTTP {code}). Check POSTERM_TOKEN (the hub's join token) and POSTERM_NAME.",
   "log.hub_down": "hub unreachable ({err}), retrying in {wait}",
   "log.spoke_linked": "spoke \"{name}\" linked to {host}",
   "log.tunnel_lost": "tunnel dropped, reconnecting",
@@ -161,7 +165,7 @@
 
   "cli.usage": "{title} — the lab wall\n\n  posterm                       run the hub (web wall + this machine's labs)\n  posterm join [hub-url]        publish this machine's labs to a hub (POSTERM_HUB)\n  posterm lab <dir> [cmd…]      spawn a lab here (no cmd = login shell)\n  posterm state <question|idle> [text…]   from inside a lab: say where it is\n                                (French alias: posterm etat <question|pose>)\n\nConfig: env vars or a .env file. See .env.example.\n",
   "cli.etat_usage": "usage, from inside a lab: posterm state <question|idle> [text…]",
-  "cli.join_needs": "need the hub URL (argument or POSTERM_HUB) and its token (POSTERM_TOKEN)",
+  "cli.join_needs": "need the hub URL (argument or POSTERM_HUB) and its join token (POSTERM_TOKEN)",
   "cli.lab_started": "lab \"{id}\" spawned in {dir}\n  attach: tmux -S {sock} attach -t {id}\n",
 
   "sel.copy": "copy",
