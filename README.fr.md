@@ -127,13 +127,14 @@ chaque labo. L'état déclaré tient jusqu'à ce que l'écran bouge à nouveau.
 - **Le soir.** Lance les longs, ferme le navigateur. Les labos vivent dans tmux,
   sur la machine, pas dans ton onglet ; ils seront là demain.
 
-## Un binaire, quatre visages
+## Un binaire, cinq visages
 
 ```
 posterm                       le hub : le mur web + les labos de cette machine
 posterm join [url-du-hub]     un rayon : publie les labos de cette machine au hub
 posterm lab <dossier> [cmd…]  lance un labo ici, depuis le shell
 posterm etat <question|pose> [texte…]   depuis un labo : dire où il en est
+posterm spoke add|revoke|list [nom]     sur le hub : un jeton de jonction par machine
 ```
 
 ## Démarrer
@@ -145,7 +146,8 @@ curl -fsSL https://posterm.sh/install | sh
 Linux : le binaire statique va dans `~/.local/bin` (`/usr/local/bin` en root),
 et le script te prévient si tmux manque. macOS : il lance le paquet Mac
 ci-dessous. Chaque téléchargement est vérifié contre le `SHA256SUMS` de la
-version. C'est une centaine de lignes de `sh` : lis-le avant,
+version, et `SHA256SUMS` contre la signature du projet (`ssh-keygen -Y`, la
+clé est dans le script). C'est une centaine de lignes de `sh` : lis-le avant,
 [il est court exprès](https://posterm.sh/install).
 
 Depuis les sources, il te faut Go et `tmux` >= 3.1. C'est toute la liste des
@@ -186,8 +188,15 @@ Pas à pas et pièges (macOS protège Bureau/Documents) :
 Le même binaire, partout :
 
 ```sh
-POSTERM_TOKEN=<jeton de jonction du hub> ./posterm join https://hub.example.org
+# sur le hub, une fois par machine (sous l'utilisateur qui lance le hub) :
+posterm spoke add portable        # affiche le jeton de portable, une seule fois
+# sur le portable :
+POSTERM_NAME=portable POSTERM_TOKEN=<jeton de portable> posterm join https://hub.example.org
 ```
+
+`posterm spoke revoke portable` le coupe dans la seconde ; `posterm spoke list`
+montre qui a un jeton. Un jeton de rayon ouvre `/join` pour ce nom, et rien
+d'autre.
 
 Le rayon appelle **vers l'extérieur** : un WebSocket vers le hub. Aucun port à
 ouvrir, le NAT et les box ne sont pas ton problème. Dans le tunnel (yamux), le
@@ -228,7 +237,7 @@ chemins) vit là. Jamais dans le code, jamais dans ce dépôt.
 | `POSTERM_GROUP`    | groupe de l'utilisateur | groupe principal correspondant                            |
 | `POSTERM_ADDR`     | `127.0.0.1:8206`    | adresse d'écoute du hub                                       |
 | `POSTERM_TOKEN`    | généré              | hub : le jeton de l'opérateur (web, API) ; rayon : le jeton de jonction du hub |
-| `POSTERM_JOIN_TOKEN` | généré            | hub : le jeton des rayons ; ouvre `/join`, rien d'autre       |
+| `POSTERM_JOIN_TOKEN` | généré            | hub : le jeton de jonction commun, pour les rayons sans le leur (`posterm spoke add`) |
 | `POSTERM_INSECURE` | —                   | `1` : laisse `posterm join` envoyer son jeton à un hub distant sans TLS |
 | `POSTERM_HUB`      | —                   | URL du hub, pour `posterm join`                                 |
 | `POSTERM_NAME`     | nom d'hôte          | le nom de la machine sur le mur                               |
@@ -336,8 +345,17 @@ est fait pour un seul opérateur, et ne prétend pas le contraire.
 - Un seul jeton d'opérateur, comparé en temps constant, cookie `HttpOnly` pour
   les navigateurs. Pas de jeton, pas de données : une page vide et une case de
   connexion.
-- Les rayons se joignent avec leur propre jeton, qui ouvre `/join` et rien
-  d'autre, et `posterm join` refuse de l'envoyer en clair à un hub distant.
+- Les connexions ratées sont limitées (cinq par client, trente pour le hub,
+  puis `429`).
+- Chaque rayon se joint avec son propre jeton (`posterm spoke add <nom>`), qui
+  ouvre `/join` pour ce nom et rien d'autre, et `posterm join` refuse de
+  l'envoyer en clair à un hub distant.
+- Chaque action passée par l'API (création, lancement, arrêt, suppression,
+  touches, envois) finit dans le journal, jamais le texte tapé.
+- Les versions sont signées ; l'installeur refuse tout le reste. À la main :
+  `ssh-keygen -Y verify -f site/allowed_signers -I posterm-release -n posterm-release -s SHA256SUMS.sig < SHA256SUMS`,
+  puis `sha256sum -c SHA256SUMS`.
+- Une faille ? [SECURITY.md](SECURITY.md) : signale-la en privé.
 - **Les labos ne voient jamais les secrets du hub.** Ce sont des agents, ils
   lisent ce que des inconnus ont écrit, et une injection de prompt tient en un
   paragraphe.
@@ -380,8 +398,8 @@ bouge pas sans version majeure. Chaque étape a son
 | 3 — Web Push, badge, boîte    | fait : VAPID, badge de la PWA = nombre de questions, journal « depuis ta dernière visite »   |
 | 7 — tableau de bord, PWA      | fait : le mur, installable                                                                   |
 | 0.1.1 — secrets               | fait : les labos ne voient jamais les jetons ni les clés push du hub ; jeton de jonction pour les rayons |
-| 0.2 — confiance               | [prochaine](https://github.com/l3dlp/posterm.sh/milestone/1) : jetons de jonction par machine, releases signées, limite des connexions, journal des actions, tests du tunnel, fuzzing, SECURITY.md |
-| 0.3 — événements              | [prévue](https://github.com/l3dlp/posterm.sh/milestone/2) : états lus via les hooks de tmux au lieu d'un sondage à 1 Hz, arrêt propre, reconnexions, relance au démarrage |
+| 0.2 — confiance               | [faite](https://github.com/l3dlp/posterm.sh/milestone/1) : jetons de jonction par machine, releases signées, limite des connexions, journal des actions, tests du tunnel, fuzzing, SECURITY.md |
+| 0.3 — événements              | [prochaine](https://github.com/l3dlp/posterm.sh/milestone/2) : états lus via les hooks de tmux au lieu d'un sondage à 1 Hz, arrêt propre, reconnexions, relance au démarrage |
 | 0.4 — vrai matériel           | [prévue](https://github.com/l3dlp/posterm.sh/milestone/3) : un vrai Mac, de vrais téléphones, CI Linux amd64/arm64 et macOS, envois au-delà de 4 Go |
 | 1.0 — contrats                | [prévue](https://github.com/l3dlp/posterm.sh/milestone/4) : API, CLI, `posterm state` et format des données documentés, migrations, recettes de hooks, `posterm doctor` |
 | 4 — chat unifié               | non. On parle aux agents dans leur terminal. Les terminaux servent à ça.                     |
@@ -415,13 +433,15 @@ src/main.go      les quatre commandes, lecture du .env
 src/i18n.go      POSTERM_LANG, T() : les dictionnaires, pour Go et le navigateur
 src/user.go      l'identité des labos (POSTERM_USER / POSTERM_GROUP)
 src/secrets.go   jetons et clés push, hors de portée des labos
+src/spokes.go    un jeton de jonction par machine (posterm spoke)
+src/audit.go     limite des connexions, journal des actions de l'opérateur
 src/engine.go    une machine : registre, tmux, détection d'état, API, terminaux, envois
 src/engine_test.go  go test ./src : confinement des chemins, zips, cibles d'envoi, config
 src/hub.go       le hub : jeton, tunnels des rayons, journal, flux SSE, push
 src/web/         le mur : HTML/CSS/JS sans build, xterm.js embarqué, intégré au binaire
 src/web/i18n/    en.json, fr.json : chaque texte affiché
 bin/build.sh     compilation (sauvegardes horodatées dans bin/backup/)
-bin/release.sh   les fichiers d'une version : 4 binaires statiques, le zip Mac, SHA256SUMS
+bin/release.sh   les fichiers d'une version : 4 binaires statiques, le zip Mac, SHA256SUMS signé
 macos/           le paquet Mac : build.sh -> zip, install/uninstall.command, guide
 config/          create-usergroup.sh, posterm.service, Caddyfile.example
 docs/design.md   pourquoi c'est construit ainsi : chaque choix, ce qu'on a refusé, ce que ça coûte (en anglais)

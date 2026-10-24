@@ -1,4 +1,5 @@
-# Every push and pull request: gofmt, vet, tests, and a build.
+# Every push and pull request: gofmt, vet, tests (race detector), a short
+# fuzzing run, and a build.
 name: ci
 
 on:
@@ -17,5 +18,12 @@ jobs:
       - name: gofmt
         run: test -z "$(gofmt -l src site/gen)" || { gofmt -l src site/gen; exit 1; }
       - run: go vet ./...
-      - run: go test ./src
+      - run: go test -race ./src
+      # The confinement boundary (paths, zips, upload manifests), fuzzed a
+      # little on every push. Run longer locally: go test -fuzz FuzzUnpack ./src
+      - name: fuzz
+        run: |
+          for f in FuzzInside FuzzUnpack FuzzReceive; do
+            go test ./src -run '^$' -fuzz "^$f\$" -fuzztime 30s
+          done
       - run: CGO_ENABLED=0 go build -trimpath -buildvcs=false -o /dev/null ./src

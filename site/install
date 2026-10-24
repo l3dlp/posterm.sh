@@ -7,11 +7,14 @@
 #        checks tmux, tells you how to start. Nothing runs in the background.
 # macOS: fetches the Mac package and runs its installer (tmux via Homebrew,
 #        a LaunchAgent, Safari's Add to Dock as the app).
-# Every download is checked against the release's SHA256SUMS.
+# Every download is checked against the release's SHA256SUMS, and SHA256SUMS
+# against its SSH signature (ssh-keygen -Y, OpenSSH 8.1+) by the key below:
+# uploading a release isn't enough to ship you a binary.
 #
 # Read it before you pipe it: it's short on purpose.
 # POSTERM_REPO=owner/name picks another GitHub repo, POSTERM_BASE another
 # download URL (a mirror, or a local dir served over http for testing).
+# POSTERM_UNSIGNED=1 skips the signature check: don't.
 
 # Everything lives in main, called on the last line: a cut-off download runs
 # nothing.
@@ -35,20 +38,43 @@ main() {
 	tmp=$(mktemp -d)
 	trap 'rm -rf "$tmp"' EXIT INT TERM
 
+	sha256() {
+		if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
+	}
+
 	fetch() { # fetch <asset>: download it and check its sum
 		curl -fsSL --proto '=https,http' -o "$tmp/$1" "$base/$1" || die "Download failed: $base/$1"
 		want=$(grep " $1\$" "$tmp/SHA256SUMS" | cut -d' ' -f1)
 		[ -n "$want" ] || die "$1 is not in SHA256SUMS."
-		if command -v sha256sum >/dev/null; then
-			got=$(sha256sum "$tmp/$1" | cut -d' ' -f1)
-		else
-			got=$(shasum -a 256 "$tmp/$1" | cut -d' ' -f1)
-		fi
-		[ "$got" = "$want" ] || die "Checksum mismatch for $1. Not installing."
+		[ "$(sha256 "$tmp/$1")" = "$want" ] || die "Checksum mismatch for $1. Not installing."
 	}
 
 	say "POSTERM from $base"
 	curl -fsSL --proto '=https,http' -o "$tmp/SHA256SUMS" "$base/SHA256SUMS" || die "Download failed: $base/SHA256SUMS"
+	if [ "${POSTERM_UNSIGNED:-}" = 1 ]; then
+		ok "signature NOT checked (POSTERM_UNSIGNED=1)"
+	else
+		command -v ssh-keygen >/dev/null || die "ssh-keygen (OpenSSH) is needed to check the release signature."
+		if ! curl -fsSL --proto '=https,http' -o "$tmp/SHA256SUMS.sig" "$base/SHA256SUMS.sig" 2>/dev/null; then
+			# Releases from before signing (0.1.0, 0.1.1) are pinned instead: their
+			# SHA256SUMS must be byte for byte the one published. Nothing else
+			# gets in without a signature.
+			case $(sha256 "$tmp/SHA256SUMS") in
+			f3bb1572ec8c070da33f228b48402554cad1959d0252149ca8fd4713eab720a8 | \
+				25359d604e8387234fdf0c826c667e959994a363dbf28dc9a851bfd1edd3e649)
+				ok "release from before signing: its SHA256SUMS is pinned, ok"
+				;;
+			*) die "This release has no signature (SHA256SUMS.sig). Not installing." ;;
+			esac
+		else
+			# The release signing key. Its twin is site/allowed_signers in the repo.
+			printf '%s\n' 'posterm-release namespaces="posterm-release" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPkqrKoiicpFCgk/BfC0+mIfClDrAgp+fxjeTmsD6c5s' >"$tmp/signers"
+			ssh-keygen -Y verify -f "$tmp/signers" -I posterm-release -n posterm-release \
+				-s "$tmp/SHA256SUMS.sig" <"$tmp/SHA256SUMS" >/dev/null 2>&1 ||
+				die "Bad signature on SHA256SUMS (or OpenSSH older than 8.1). Not installing."
+			ok "signature ok"
+		fi
+	fi
 
 	case $os in
 	Darwin)

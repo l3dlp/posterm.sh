@@ -20,6 +20,7 @@ aspirational: every claim maps to code you can read in an afternoon, under
 - [State is read off the screen](#state-is-read-off-the-screen)
 - [The filesystem is the IPC](#the-filesystem-is-the-ipc)
 - [One token, one operator](#one-token-one-operator)
+- [Threat model](#threat-model)
 - [No build step in the browser](#no-build-step-in-the-browser)
 - [The journal records transitions, not bytes](#the-journal-records-transitions-not-bytes)
 - [Push, with a Reply field](#push-with-a-reply-field)
@@ -29,6 +30,7 @@ aspirational: every claim maps to code you can read in an afternoon, under
 - [One dictionary per language, everywhere](#one-dictionary-per-language-everywhere)
 - [Dropping privileges before tmux](#dropping-privileges-before-tmux)
 - [The Mac package touches no code](#the-mac-package-touches-no-code)
+- [Releases are signed](#releases-are-signed)
 - [What we will not build](#what-we-will-not-build)
 - [Rules we keep](#rules-we-keep)
 - [Read the code](#read-the-code)
@@ -290,11 +292,17 @@ operator secret. Spokes get a narrower one of their own.
 
 - The token comes from `POSTERM_TOKEN`, or is generated once (24 random
   bytes, hex) into `$POSTERM_DATA/secrets/token` with mode 600.
-- The join token comes from `POSTERM_JOIN_TOKEN`, or is generated once into
-  `$POSTERM_DATA/secrets/join-token`. It opens `/join` and nothing else: a
-  compromised spoke can't read the wall or type into another machine's labs
-  through the API. (The operator token still opens `/join`, for spokes set up
-  before the join token existed.)
+- Each spoke gets its own token: `posterm spoke add <name>` on the hub prints
+  it once, `posterm spoke revoke <name>` cuts that machine's tunnel within a
+  second. The hub keeps only SHA-256 hashes, in `$POSTERM_DATA/spokes.json`
+  (owned by whoever ran the command, root on a hub started as root, so a lab
+  can't add itself a token). A spoke token opens `/join` for its own name and
+  nothing else: no API, no wall, no other machine's name.
+- The hub-wide join token (`POSTERM_JOIN_TOKEN`, or generated into
+  `secrets/join-token`) and the operator token still open `/join` for names
+  that have no token of their own, with a warning in the log. A name that
+  has its own token can't be joined with them anymore, and a spoke still
+  connected that way is cut when its name gets one.
 - Browsers log in once and get an `HttpOnly`, `SameSite=Lax` cookie valid for
   a year, `Secure` when the request came over TLS. Its value is a SHA-256
   derived from the token, never the token itself. Rotate the token and every
@@ -302,7 +310,11 @@ operator secret. Spokes get a narrower one of their own.
 - Spokes send `Authorization: Bearer <join token>`, and only over TLS: a
   spoke refuses a cleartext hub URL unless it is this very machine
   (`POSTERM_INSECURE=1` overrides).
-- Both comparisons are constant-time. A failed login waits a second.
+- Both comparisons are constant-time. A failed login waits a second, and
+  failures are budgeted: five per client, then one every 12 s, and thirty for
+  the whole hub, then one every 2 s. Past that it's a 429 with `Retry-After`.
+  The client is the first `X-Forwarded-For` hop when the request comes from
+  the reverse proxy on this machine, its socket's address otherwise.
 - Any request that carries an `Origin` header must come from the hub's own
   host, or it's a 403. That kills CSRF and cross-site WebSocket hijacking in
   one check.
@@ -325,8 +337,38 @@ different product with a different threat model.
 
 **The cost.** Whoever has the operator token has a shell on every machine.
 Keep the hub behind the proxy, and run the labs as a dedicated user (below).
-A spoke that joins under another machine's name still takes that name's
-place on the wall: the join token is per hub, not per machine.
+A spoke that still uses the hub-wide join token can take the place of any
+name that has no token of its own: give every spoke its own.
+
+## Threat model
+
+Who can do what, and what POSTERM does about it.
+
+- **The operator** holds the operator token: the wall, the API, a shell in
+  every lab on every machine. That's the product. Protected by the token, the
+  reverse proxy (TLS, IP allowlist, optional client certificates) and the
+  login budget.
+- **The labs** are agents. They read web pages, issues and READMEs that
+  strangers wrote, so assume one of them is hostile. A lab has a shell in its
+  own project; it must not get anything more. It can't read the hub's secrets
+  or environment, can't replace them, and can't add itself a spoke token
+  ([Dropping privileges before tmux](#dropping-privileges-before-tmux)). This
+  holds when the hub starts as root with a `POSTERM_USER`; started as the labs'
+  own user, the hub has nothing to hide its files behind.
+- **A spoke** is another machine, maybe less trusted than the hub. Its token
+  opens `/join` for its own name: it serves its labs to the hub and receives
+  what the operator types into them, nothing else. Revoking it cuts it off.
+- **The network** carries the token. TLS is the proxy's job on the hub side,
+  and `posterm join` refuses a cleartext remote hub.
+- **The release channel**: the installer only accepts binaries whose
+  `SHA256SUMS` carries the project's signature
+  ([Releases are signed](#releases-are-signed)).
+- **Afterwards**: every action the operator takes through the API (create,
+  start, stop, delete, keys, uploads) is journaled, without the typed text.
+
+Out of scope: someone with the operator token or the operator's browser,
+root on the hub, and an agent damaging the project it was given. It has a
+shell there on purpose; that's what git is for.
 
 ## No build step in the browser
 
@@ -377,6 +419,13 @@ attention:
 Each line holds the time, machine, lab, from/to states and a text: the note
 from `posterm state`, else the last lines of the screen. The file is
 append-only; the hub keeps the last 300 events in memory for the log panel.
+
+It also records what the operator did through the API, once it succeeded:
+a lab created (dir and command), started, stopped, deleted, keys sent
+(`12 chars + Enter`, never the text itself), files uploaded (dir and size),
+and whether it came from the wall or the API. These lines never count as
+news, and the log panel can hide them. Terminal keystrokes go over the
+WebSocket and are not journaled: that would be a keylogger.
 
 **Why.** "What happened while I was away" is a list of transitions. Recording
 terminal output would be a second, worse scrollback. tmux already keeps the
@@ -581,6 +630,29 @@ rotate the token (a new `POSTERM_TOKEN`, or delete `secrets/token`; then
 restart) and restart them. Agents must be installed and logged in
 as the labs' user.
 
+## Releases are signed
+
+**The choice.** `bin/release.sh` signs `SHA256SUMS` with an SSH key
+(`ssh-keygen -Y sign`, namespace `posterm-release`). The public half is
+`site/allowed_signers`, embedded in `site/install`, which verifies the
+signature before it checks a single sum. No signature, a bad one, or an
+OpenSSH without `-Y` (older than 8.1): nothing gets installed.
+`POSTERM_UNSIGNED=1` skips the check, loudly. In CI the key is the
+`RELEASE_SIGNING_KEY` secret; `release.sh` refuses to build an unsigned
+release unless told so, and checks that the installer embeds the right key.
+
+**Why.** Checksums fetched from the same release prove the download is
+intact, not who published it: whoever can upload a release can upload
+matching sums. A signature moves the trust from "can push to GitHub" to
+"holds the key".
+
+**What we refused.** minisign or cosign: one more tool to install before
+the installer can run. ssh-keygen is already on every Linux and Mac.
+
+**The cost.** The key must be kept, and rotating it means shipping an
+installer with the new one. Releases before 0.2.0 are unsigned, and the
+current installer refuses them.
+
 ## The Mac package touches no code
 
 **The choice.** `macos/build.sh` cross-compiles both darwin binaries from
@@ -643,6 +715,8 @@ processes, so keep projects elsewhere.
 | `src/hub.go`                | auth, static wall, spoke tunnels, SSE, journal, Web Push                     |
 | `src/user.go`               | privilege drop, tmux socket ownership check                                  |
 | `src/secrets.go`            | tokens and VAPID keys: root-only, read before the drop, kept in memory       |
+| `src/spokes.go`             | per-machine join tokens: `posterm spoke`, hashes in `spokes.json`            |
+| `src/audit.go`              | login budget, journal of the operator's actions                              |
 | `src/i18n.go`               | language selection, `T()`, `E()`                                             |
 | `src/web/app.js`            | the wall, terminals, selection menu, drops and the browser-side zip          |
 | `src/web/sw.js`             | service worker: notifications and inline reply                               |

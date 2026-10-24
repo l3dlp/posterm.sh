@@ -111,13 +111,14 @@ French spelling and still works.)
 - **Night.** Start the long ones and close the browser. The labs live in tmux
   on the machine, not in your tab; they'll be there tomorrow.
 
-## One binary, four faces
+## One binary, five faces
 
 ```
 posterm                       the hub: web wall + this machine's labs
 posterm join [hub-url]        a spoke: publish this machine's labs to the hub
 posterm lab <dir> [cmd…]      spawn a lab here, from the shell
 posterm state <question|idle> [text…]   from inside a lab: say where it is
+posterm spoke add|revoke|list [name]    on the hub: one join token per machine
 ```
 
 ## Getting started
@@ -128,8 +129,10 @@ curl -fsSL https://posterm.sh/install | sh
 
 Linux: the static binary goes to `~/.local/bin` (`/usr/local/bin` as root), and
 it tells you if tmux is missing. macOS: it runs the Mac package below. Every
-download is checked against the release's `SHA256SUMS`. It's 100-odd lines of
-`sh`: read it first, [it's short on purpose](https://posterm.sh/install).
+download is checked against the release's `SHA256SUMS`, and `SHA256SUMS`
+against the project's signature (`ssh-keygen -Y`, the key is in the script).
+It's 100-odd lines of `sh`: read it first,
+[it's short on purpose](https://posterm.sh/install).
 
 From source, you need Go and `tmux` >= 3.1. That's the dependency list.
 
@@ -167,8 +170,15 @@ Desktop/Documents): [`macos/README.md`](macos/README.md).
 Same binary, everywhere:
 
 ```sh
-POSTERM_TOKEN=<hub join token> ./posterm join https://hub.example.org
+# on the hub, once per machine (as the user that starts the hub):
+posterm spoke add laptop          # prints laptop's token, once
+# on the laptop:
+POSTERM_NAME=laptop POSTERM_TOKEN=<laptop's token> posterm join https://hub.example.org
 ```
+
+`posterm spoke revoke laptop` cuts it off within a second; `posterm spoke list`
+shows who has a token. A spoke token opens `/join` for that name and nothing
+else.
 
 The spoke dials **out**: one WebSocket to the hub. No port to open, NAT and
 home routers are not your problem. Inside the tunnel (yamux) the hub speaks
@@ -208,7 +218,7 @@ lives there. Never in the code, never in this repo.
 | `POSTERM_GROUP`    | the user's group | matching primary group                                        |
 | `POSTERM_ADDR`     | `127.0.0.1:8206` | hub listen address                                            |
 | `POSTERM_TOKEN`    | generated        | hub: the operator token (web, API); spoke: the hub's join token |
-| `POSTERM_JOIN_TOKEN` | generated      | hub: the token spokes join with; opens `/join`, nothing else  |
+| `POSTERM_JOIN_TOKEN` | generated      | hub: the hub-wide join token, for spokes without their own (`posterm spoke add`) |
 | `POSTERM_INSECURE` | —                | `1`: let `posterm join` send its token to a non-TLS remote hub  |
 | `POSTERM_HUB`      | —                | hub URL, for `posterm join`                                     |
 | `POSTERM_NAME`     | hostname         | the machine's name on the wall                                |
@@ -308,8 +318,17 @@ built for one operator, and it doesn't pretend otherwise.
 
 - One operator token, compared in constant time, `HttpOnly` cookie for
   browsers. No token, no data: you get an empty page and a login box.
-- Spokes join with their own token, which opens `/join` and nothing else, and
-  `posterm join` refuses to send it in cleartext to a remote hub.
+- Failed logins are budgeted (five per client, thirty for the hub, then
+  `429`).
+- Each spoke joins with its own token (`posterm spoke add <name>`), which
+  opens `/join` for that name and nothing else, and `posterm join` refuses to
+  send it in cleartext to a remote hub.
+- Every action taken through the API (create, start, stop, delete, keys,
+  uploads) lands in the journal, never the typed text.
+- Releases are signed; the installer refuses anything else. By hand:
+  `ssh-keygen -Y verify -f site/allowed_signers -I posterm-release -n posterm-release -s SHA256SUMS.sig < SHA256SUMS`,
+  then `sha256sum -c SHA256SUMS`.
+- Found something? [SECURITY.md](SECURITY.md): report it privately.
 - **The labs never see the hub's secrets.** They're agents, they read things
   strangers wrote, and a prompt injection is one paragraph away.
   - Nothing from `.env` and no `POSTERM_*` setting reaches a lab's
@@ -348,8 +367,8 @@ and one issue per piece of work.
 | 3 — Web Push, badge, inbox  | done: VAPID, PWA badge = number of questions, log "since you last looked"                 |
 | 7 — dashboard, PWA          | done: the wall, installable                                                               |
 | 0.1.1 — secrets             | done: the labs never see the hub's tokens or push keys; join token for spokes             |
-| 0.2 — trust                 | [next](https://github.com/l3dlp/posterm.sh/milestone/1): per-machine join tokens, signed releases, login rate limit, audit trail, tunnel tests, fuzzing, SECURITY.md |
-| 0.3 — events                | [planned](https://github.com/l3dlp/posterm.sh/milestone/2): state from tmux hooks instead of 1 Hz polling, clean shutdown, reconnects, respawn on boot |
+| 0.2 — trust                 | [done](https://github.com/l3dlp/posterm.sh/milestone/1): per-machine join tokens, signed releases, login budget, audit trail, tunnel tests, fuzzing, SECURITY.md |
+| 0.3 — events                | [next](https://github.com/l3dlp/posterm.sh/milestone/2): state from tmux hooks instead of 1 Hz polling, clean shutdown, reconnects, respawn on boot |
 | 0.4 — real hardware         | [planned](https://github.com/l3dlp/posterm.sh/milestone/3): a real Mac, real phones, CI on Linux amd64/arm64 and macOS, uploads beyond 4 GB |
 | 1.0 — contracts             | [planned](https://github.com/l3dlp/posterm.sh/milestone/4): documented API, CLI, `posterm state` and data format, migrations, hook recipes, `posterm doctor` |
 | 4 — unified chat            | no. You talk to agents in their terminal. That's what terminals are for.                  |
@@ -382,13 +401,15 @@ src/main.go      the four commands, .env loading
 src/i18n.go      POSTERM_LANG, T(): the dictionaries, for Go and the browser
 src/user.go      the labs' identity (POSTERM_USER / POSTERM_GROUP)
 src/secrets.go   tokens and push keys, out of the labs' reach
+src/spokes.go    one join token per machine (posterm spoke)
+src/audit.go     login budget, journal of the operator's actions
 src/engine.go    one machine: lab registry, tmux, state detection, API, terminals, uploads
 src/engine_test.go  go test ./src: path confinement, zips, upload targets, config
 src/hub.go       the hub: token, spoke tunnels, journal, SSE stream, push
 src/web/         the wall: vanilla HTML/CSS/JS, vendored xterm.js, embedded in the binary
 src/web/i18n/    en.json, fr.json: every user-facing string
 bin/build.sh     build (timestamped backups in bin/backup/)
-bin/release.sh   release assets: 4 static binaries, the Mac zip, SHA256SUMS
+bin/release.sh   release assets: 4 static binaries, the Mac zip, signed SHA256SUMS
 macos/           the Mac package: build.sh -> zip, install/uninstall.command, guide
 config/          create-usergroup.sh, posterm.service, Caddyfile.example
 docs/design.md   why it's built this way: every choice, what we refused, what it costs

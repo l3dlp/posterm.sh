@@ -44,6 +44,7 @@ type machine struct {
 	client *http.Client
 	labs   []LabState
 	online bool
+	legacy bool // joined with the hub-wide token, not its own
 }
 
 type MachineView struct {
@@ -52,15 +53,18 @@ type MachineView struct {
 	Labs   []LabState `json:"labs"`
 }
 
-// Event is one line of the append-only journal: a post-it changed colour.
+// Event is one line of the append-only journal: a post-it changed colour, or
+// (Act set) the operator did something to a lab, By the web wall or the API.
 type Event struct {
 	T       int64  `json:"t"`
 	Machine string `json:"m"`
 	ID      string `json:"id"`
 	Name    string `json:"name"`
-	From    string `json:"from"`
-	To      string `json:"to"`
+	From    string `json:"from,omitempty"`
+	To      string `json:"to,omitempty"`
 	Text    string `json:"text"`
+	Act     string `json:"act,omitempty"`
+	By      string `json:"by,omitempty"`
 }
 
 type Hub struct {
@@ -70,7 +74,9 @@ type Hub struct {
 	token     string // operator: browsers and the API
 	joinToken string // spokes: /join only
 	cookie    string
-	vapid     vapidKeys // in memory only, see secrets.go
+	vapid     vapidKeys     // in memory only, see secrets.go
+	spokes    spokeRegistry // guarded by mu
+	logins    loginLimiter
 	local     *Engine
 
 	mu       sync.Mutex
@@ -91,17 +97,30 @@ func yamuxConfig() *yamux.Config {
 }
 
 func runHub(engine *Engine, data string, sec Secrets) {
+	h, handler := newHub(engine, data, sec)
+	go engine.Run()
+	go h.watch()
+
+	addr := cfgOr("ADDR", "127.0.0.1:8206")
+	log.Print(T("log.hub", "name", h.name, "addr", addr, "data", data))
+	// No write timeout: SSE and terminals are long-lived on purpose.
+	srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
+	log.Fatal(srv.ListenAndServe())
+}
+
+// newHub builds the hub and its HTTP handler (guard included), without
+// starting the poll loops or listening: tests drive it through httptest.
+func newHub(engine *Engine, data string, sec Secrets) (*Hub, http.Handler) {
 	h := &Hub{data: data, name: machineName(), title: cfgOr("TITLE", "POSTERM"), local: engine, localHandler: engine.Handler(),
 		machines: map[string]*machine{}, prev: map[string]LabState{}, streams: map[chan []byte]bool{}}
 	h.token, h.joinToken = sec.Token, sec.JoinToken
+	h.spokes = spokeRegistry{data: data}
+	h.spokes.refresh()
 	h.vapid = vapidKeys{Public: sec.VAPIDPublic, Private: sec.VAPIDPrivate}
 	sum := sha256.Sum256([]byte("monia-cookie:" + h.token)) // pre-rename salt: changing it logs every browser out
 	h.cookie = hex.EncodeToString(sum[:])
 	h.loadJournal()
 	h.loadPush()
-
-	go engine.Run()
-	go h.watch()
 
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -159,11 +178,7 @@ func runHub(engine *Engine, data string, sec Secrets) {
 	root.HandleFunc("/m/", h.route)
 	root.Handle("/", r)
 
-	addr := cfgOr("ADDR", "127.0.0.1:8206")
-	log.Print(T("log.hub", "name", h.name, "addr", addr, "data", data))
-	// No write timeout: SSE and terminals are long-lived on purpose.
-	srv := &http.Server{Addr: addr, Handler: h.guard(root), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
-	log.Fatal(srv.ListenAndServe())
+	return h, h.guard(root)
 }
 
 // titled reads an embedded web file and fills in {{TITRE}}, {{LANG}} and every
@@ -193,12 +208,16 @@ func jsonError(w http.ResponseWriter, code int, msg string) {
 func same(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }
 
 func (h *Hub) authed(r *http.Request) bool {
+	return h.cookieAuthed(r) || same(h.bearer(r), h.token)
+}
+
+func (h *Hub) cookieAuthed(r *http.Request) bool {
 	for _, name := range []string{cookieName, oldCookieName} {
 		if c, err := r.Cookie(name); err == nil && same(c.Value, h.cookie) {
 			return true
 		}
 	}
-	return same(h.bearer(r), h.token)
+	return false
 }
 
 func (h *Hub) bearer(r *http.Request) string {
@@ -206,12 +225,15 @@ func (h *Hub) bearer(r *http.Request) string {
 	return b
 }
 
-// joinAuthed lets a spoke in with the join token, which opens /join and
-// nothing else, or with the operator token (spokes set up before the join
-// token existed).
-func (h *Hub) joinAuthed(r *http.Request) bool {
-	b := h.bearer(r)
-	return b != "" && (same(b, h.joinToken) || same(b, h.token))
+// joinVerdict says how a /join request may get in: "spoke" with the token of
+// the very name it asks for, "legacy" with the hub-wide join token or the
+// operator token (spokes set up before per-machine tokens), "" not at all.
+func (h *Hub) joinVerdict(r *http.Request) string {
+	name := spokeName(r.URL.Query().Get("name"))
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.spokes.refresh()
+	return h.spokes.check(name, h.bearer(r), h.joinToken, h.token)
 }
 
 // guard lets the static shell and the login through, and nothing else. Any
@@ -226,7 +248,7 @@ func (h *Hub) guard(next http.Handler) http.Handler {
 		}
 		p := r.URL.Path
 		if p == "/join" {
-			if !h.joinAuthed(r) {
+			if h.joinVerdict(r) == "" {
 				jsonError(w, 401, T("err.token_needed"))
 				return
 			}
@@ -259,7 +281,14 @@ func (h *Hub) login(c *gin.Context) {
 	if c.BindJSON(&in) != nil {
 		return
 	}
+	ip := clientIP(c.Request)
+	if wait := h.logins.wait(ip, time.Now()); wait > 0 {
+		c.Header("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		c.JSON(429, gin.H{"error": T("err.login_later")})
+		return
+	}
 	if !same(strings.TrimSpace(in.Token), h.token) {
+		h.logins.failed(ip, time.Now())
 		time.Sleep(time.Second) // one operator: brute force can wait
 		c.JSON(401, gin.H{"error": T("err.token_bad")})
 		return
@@ -275,7 +304,7 @@ func (h *Hub) route(w http.ResponseWriter, r *http.Request) {
 	name, rest, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/m/"), "/")
 	r.URL.Path, r.URL.RawPath = "/"+rest, ""
 	if name == h.name {
-		h.localHandler.ServeHTTP(w, r)
+		h.audited(w, r, name, r.URL.Path, h.localHandler.ServeHTTP)
 		return
 	}
 	h.mu.Lock()
@@ -285,16 +314,24 @@ func (h *Hub) route(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, 502, T("err.offline"))
 		return
 	}
-	m.proxy.ServeHTTP(w, r)
+	h.audited(w, r, name, r.URL.Path, m.proxy.ServeHTTP)
 }
 
 // join is where a spoke lands. The WebSocket becomes a yamux session on which
 // *we* are the client: every stream we open is an HTTP request to the spoke.
 func (h *Hub) join(c *gin.Context) {
-	name := strings.Trim(notSlug.ReplaceAllString(strings.ToLower(c.Query("name")), "-"), "-")
+	name := spokeName(c.Query("name"))
 	if name == "" || name == h.name {
 		c.JSON(409, gin.H{"error": T("err.machine_name")})
 		return
+	}
+	verdict := h.joinVerdict(c.Request)
+	if verdict == "" { // the guard already said so; spokes.json may have changed since
+		c.JSON(401, gin.H{"error": T("err.token_needed")})
+		return
+	}
+	if verdict == "legacy" {
+		log.Print(T("log.spoke_legacy", "name", name))
 	}
 	ws, err := websocket.Accept(c.Writer, c.Request, nil)
 	if err != nil {
@@ -310,7 +347,7 @@ func (h *Hub) join(c *gin.Context) {
 
 	tr := &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) { return sess.Open() }}
 	target := &url.URL{Scheme: "http", Host: "rayon"}
-	m := &machine{sess: sess, online: true, client: &http.Client{Transport: tr, Timeout: 5 * time.Second},
+	m := &machine{sess: sess, online: true, legacy: verdict == "legacy", client: &http.Client{Transport: tr, Timeout: 5 * time.Second},
 		proxy: &httputil.ReverseProxy{Transport: tr, Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
 			pr.Out.Host = pr.In.Host
@@ -354,34 +391,52 @@ func runSpoke(engine *Engine, hub, token string) {
 	if !secureHub(u) && cfg("INSECURE") != "1" {
 		log.Fatal(T("log.hub_cleartext", "url", hub))
 	}
-	u.Path, u.RawQuery = "/join", "name="+url.QueryEscape(machineName())
 	handler := engine.Handler()
 	for wait := time.Second; ; {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		ws, res, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{
-			HTTPHeader: http.Header{"Authorization": {"Bearer " + token}}})
-		cancel()
+		code, err := serveSpoke(context.Background(), u, machineName(), token, handler)
+		if code == 401 || code == 409 {
+			log.Fatal(T("log.spoke_refused", "code", strconv.Itoa(code)))
+		}
 		if err != nil {
-			if res != nil && (res.StatusCode == 401 || res.StatusCode == 409) {
-				log.Fatal(T("log.spoke_refused", "code", strconv.Itoa(res.StatusCode)))
-			}
 			log.Print(T("log.hub_down", "err", err.Error(), "wait", wait.String()))
 			time.Sleep(wait)
 			wait = min(wait*2, 30*time.Second)
 			continue
 		}
 		wait = time.Second
-		ws.SetReadLimit(-1)
-		sess, err := yamux.Server(websocket.NetConn(context.Background(), ws, websocket.MessageBinary), yamuxConfig())
-		if err == nil {
-			log.Print(T("log.spoke_linked", "name", machineName(), "host", u.Host))
-			http.Serve(sess, handler)
-			sess.Close()
-		}
-		ws.CloseNow()
 		log.Print(T("log.tunnel_lost"))
 		time.Sleep(wait)
 	}
+}
+
+// serveSpoke dials the hub once and serves handler on the tunnel until it
+// closes (or ctx ends). It returns the HTTP status of a refused join, or the
+// dial error; (0, nil) means the tunnel was up and then went away.
+func serveSpoke(ctx context.Context, hub *url.URL, name, token string, handler http.Handler) (int, error) {
+	u := *hub
+	u.Path, u.RawQuery = "/join", "name="+url.QueryEscape(name)
+	dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	ws, res, err := websocket.Dial(dctx, u.String(), &websocket.DialOptions{
+		HTTPHeader: http.Header{"Authorization": {"Bearer " + token}}})
+	cancel()
+	if err != nil {
+		if res != nil {
+			return res.StatusCode, err
+		}
+		return 0, err
+	}
+	defer ws.CloseNow()
+	ws.SetReadLimit(-1)
+	sess, err := yamux.Server(websocket.NetConn(ctx, ws, websocket.MessageBinary), yamuxConfig())
+	if err != nil {
+		return 0, nil
+	}
+	stop := context.AfterFunc(ctx, func() { sess.Close() })
+	defer stop()
+	log.Print(T("log.spoke_linked", "name", name, "host", u.Host))
+	http.Serve(sess, handler)
+	sess.Close()
+	return 0, nil
 }
 
 // ---------------------------------------------------------------- the world
@@ -408,9 +463,27 @@ func (h *Hub) snapshot() []MachineView {
 
 // watch diffs the world every second: transitions feed the journal and the
 // push notifications, changes feed the browsers.
+// reapSpokes closes the tunnel of a revoked name, and of a name that got its
+// own token while it was still connected with a legacy one.
+func (h *Hub) reapSpokes() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	revoked := h.spokes.refresh()
+	for name, m := range h.machines {
+		_, own := h.spokes.entries[name]
+		if slices.Contains(revoked, name) || (own && m.legacy) {
+			if !m.sess.IsClosed() {
+				log.Print(T("log.spoke_cut", "name", name))
+				m.sess.Close()
+			}
+		}
+	}
+}
+
 func (h *Hub) watch() {
 	minBusy := int64(10) // a lab must have worked this long for "posé" to be news
 	for ; ; time.Sleep(time.Second) {
+		h.reapSpokes()
 		views := h.snapshot()
 		questions := 0
 		var events []Event

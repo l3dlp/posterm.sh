@@ -350,6 +350,9 @@ dialog > header { display: flex; justify-content: space-between; align-items: fl
 #journal li { border-left: 6px solid var(--c, var(--eteint)); padding: 6px 10px; margin-bottom: 10px; cursor: pointer; }
 #journal li:hover { background: color-mix(in srgb, var(--c, var(--eteint)) 14%, transparent); }
 #journal .when { color: var(--dim); font-size: 11px; }
+#journal li.act { --c: var(--dim); opacity: .75; }
+#journal li.act pre { font-size: 11px; }
+.journal-mine { margin-left: auto; margin-right: 12px; font-size: 12px; color: var(--dim); display: flex; align-items: center; gap: 6px; cursor: pointer; }
 #journal .new { background: var(--accent); color: var(--on-accent); padding: 0 5px; font-size: 10px; font-weight: 700; margin-left: 6px; }
 #journal pre { margin: 4px 0 0; font: 11px/1.35 var(--mono); color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 9em; overflow: hidden; }
 

@@ -8,6 +8,7 @@
 #   posterm-darwin-amd64 posterm-darwin-arm64
 #   POSTERM-macos.zip                             the Mac package (macos/build.sh)
 #   SHA256SUMS                                    checked by the installer
+#   SHA256SUMS.sig                                its SSH signature (site/allowed_signers)
 # then prints the `gh release create` line. It publishes nothing by itself, and
 # never touches ./posterm or the running hub.
 set -euo pipefail
@@ -36,6 +37,34 @@ done
 macos/build.sh >/dev/null
 cp macos/dist/POSTERM-macos.zip "$out/"
 (cd "$out" && sha256sum posterm-* POSTERM-macos.zip >SHA256SUMS)
+
+# site/install embeds the public key: it must be the one in site/allowed_signers.
+grep -qF "$(cut -d' ' -f2- site/allowed_signers)" site/install ||
+	{ echo "site/install does not embed the key in site/allowed_signers" >&2; exit 1; }
+
+# Sign the sums with an SSH key (ssh-keygen -Y: no extra tool on either side).
+# The installer checks the signature against site/allowed_signers, so whoever
+# can upload a release still can't ship binaries it accepts.
+# Key: POSTERM_SIGNING_KEY (a file) or RELEASE_SIGNING_KEY (its content, CI).
+key=${POSTERM_SIGNING_KEY:-}
+if [ -z "$key" ] && [ -n "${RELEASE_SIGNING_KEY:-}" ]; then
+	key=$(mktemp)
+	trap 'rm -f "$key"' EXIT
+	chmod 600 "$key"
+	printf '%s
+' "$RELEASE_SIGNING_KEY" >"$key"
+fi
+if [ -n "$key" ]; then
+	say "signing SHA256SUMS"
+	ssh-keygen -q -Y sign -f "$key" -n posterm-release "$out/SHA256SUMS"
+	ssh-keygen -q -Y verify -f site/allowed_signers -I posterm-release -n posterm-release 		-s "$out/SHA256SUMS.sig" <"$out/SHA256SUMS" >/dev/null ||
+		{ echo "the signing key does not match site/allowed_signers" >&2; exit 1; }
+elif [ "${POSTERM_UNSIGNED:-}" = 1 ]; then
+	echo "warning: unsigned release (POSTERM_UNSIGNED=1): the installer will refuse it" >&2
+else
+	echo "no signing key: set POSTERM_SIGNING_KEY or RELEASE_SIGNING_KEY (or POSTERM_UNSIGNED=1 for a test build)" >&2
+	exit 1
+fi
 
 say "$out:"
 (cd "$out" && ls -lh | tail -n +2 | awk '{print "  " $5 "\t" $9}')

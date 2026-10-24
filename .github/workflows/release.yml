@@ -32,6 +32,10 @@ jobs:
           go-version-file: go.mod
       # Same script as a local release: gofmt, vet, tests, then dist/<tag>/.
       - run: bin/release.sh "$TAG"
+        env:
+          # The SSH key that signs SHA256SUMS (repo secret). Its public half is
+          # site/allowed_signers, embedded in site/install.
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

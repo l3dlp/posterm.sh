@@ -928,33 +928,48 @@ for (const b of document.querySelectorAll('[data-close]')) b.addEventListener('c
 // ---------------------------------------------------------------- journal
 
 const VERB = Object.fromEntries(['question', 'pose', 'eteint'].map(s => [s, t(`journal.${s}`)]));
+// What the operator did (journaled by the hub): never counted as news.
+const ACT = Object.fromEntries(['create', 'start', 'stop', 'delete', 'keys', 'upload'].map(a => [a, t(`journal.act_${a}`)]));
 
 // inbox counts what happened since the journal was last opened.
 async function inbox() {
   const events = (await api('/api/journal').catch(() => null)) || []; // null while the journal is empty
-  const fresh = events.filter(ev => ev.t > store.get('seen', 0)).length;
+  const fresh = events.filter(ev => !ev.act && ev.t > store.get('seen', 0)).length;
   put($('#btn-journal'), fresh ? `${t('html.journal')} (${fresh})` : t('html.journal'));
   $('#btn-journal').classList.toggle('on', fresh > 0);
   return events;
 }
-$('#btn-journal').addEventListener('click', guard(async () => {
-  const events = await inbox();
-  const seen = store.get('seen', 0);
+function renderJournal(events, seen) {
+  const mine = store.get('journal.mine', true);
+  $('#journal-mine').checked = mine;
   const today = new Date().toDateString();
   const list = $('#journal');
-  list.replaceChildren(...events.reverse().map(ev => {
-    const li = el('li', ev.to);
+  const shown = events.filter(ev => mine || !ev.act).reverse();
+  list.replaceChildren(...shown.map(ev => {
+    const li = el('li', ev.act ? 'act' : ev.to);
     const d = new Date(ev.t * 1000);
     const hm = d.toLocaleTimeString(document.documentElement.lang, { hour: '2-digit', minute: '2-digit' });
-    const when = el('span', 'when', (d.toDateString() === today ? '' : d.toLocaleDateString(document.documentElement.lang, { day: 'numeric', month: 'short' }) + ' ') + hm + ' · ' + ev.m);
+    const by = ev.by ? ' · ' + t(`journal.by_${ev.by}`) : '';
+    const when = el('span', 'when', (d.toDateString() === today ? '' : d.toLocaleDateString(document.documentElement.lang, { day: 'numeric', month: 'short' }) + ' ') + hm + ' · ' + ev.m + by);
     const head = el('div');
-    head.append(el('b', '', ev.name), ` ${VERB[ev.to] || ev.to} `, when);
-    if (ev.t > seen) head.append(el('span', 'new', t('journal.new')));
-    li.append(head, el('pre', '', ev.text));
+    head.append(el('b', '', ev.name), ` ${ev.act ? (ACT[ev.act] || ev.act) : (VERB[ev.to] || ev.to)} `, when);
+    if (!ev.act && ev.t > seen) head.append(el('span', 'new', t('journal.new')));
+    li.append(head);
+    if (ev.text) li.append(el('pre', '', ev.text));
     li.addEventListener('click', () => { $('#dlg-journal').close(); location.hash = `${ev.m}/${ev.id}`; });
     return li;
   }));
-  if (!events.length) list.append(el('li', '', t('journal.empty')));
+  if (!shown.length) list.append(el('li', '', t('journal.empty')));
+}
+let journalEvents = [], journalSeen = 0;
+$('#journal-mine').addEventListener('change', e => {
+  store.set('journal.mine', e.target.checked);
+  renderJournal(journalEvents, journalSeen);
+});
+$('#btn-journal').addEventListener('click', guard(async () => {
+  journalEvents = await inbox();
+  journalSeen = store.get('seen', 0);
+  renderJournal(journalEvents, journalSeen);
   store.set('seen', Math.floor(Date.now() / 1000));
   put($('#btn-journal'), t('html.journal'));
   $('#btn-journal').classList.remove('on');

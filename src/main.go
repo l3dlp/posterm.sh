@@ -127,8 +127,12 @@ func main() {
 	// dir is handed over to the labs' user: see secrets.go.
 	var sec Secrets
 	data := becomeUser(func(data string) {
-		if cmd == "" {
+		switch cmd {
+		case "":
 			sec = loadSecrets(data)
+		case "spoke": // spokes.json must stay out of the labs' hands: write it as we started
+			spokeCommand(data, args)
+			os.Exit(0)
 		}
 	})
 	engine, err := NewEngine(data)
