@@ -335,6 +335,11 @@ built for one operator, and it doesn't pretend otherwise.
 
 ## Roadmap
 
+1.0 is a promise, not a feature list: you can hand your agents to it, an
+upgrade breaks nothing, and what's documented doesn't move without a major
+version. Each step has a [milestone](https://github.com/l3dlp/posterm.sh/milestones)
+and one issue per piece of work.
+
 | phase                       | status                                                                                    |
 | --------------------------- | ----------------------------------------------------------------------------------------- |
 | 0 — single binary, auth     | done: one binary, one port; token + cookie instead of an IP allowlist                     |
@@ -342,6 +347,11 @@ built for one operator, and it doesn't pretend otherwise.
 | 2 — human in the loop       | done: the `question` state, `posterm state`, answer from the wall, broadcast or push        |
 | 3 — Web Push, badge, inbox  | done: VAPID, PWA badge = number of questions, log "since you last looked"                 |
 | 7 — dashboard, PWA          | done: the wall, installable                                                               |
+| 0.1.1 — secrets             | done: the labs never see the hub's tokens or push keys; join token for spokes             |
+| 0.2 — trust                 | [next](https://github.com/l3dlp/posterm.sh/milestone/1): per-machine join tokens, signed releases, login rate limit, audit trail, tunnel tests, fuzzing, SECURITY.md |
+| 0.3 — events                | [planned](https://github.com/l3dlp/posterm.sh/milestone/2): state from tmux hooks instead of 1 Hz polling, clean shutdown, reconnects, respawn on boot |
+| 0.4 — real hardware         | [planned](https://github.com/l3dlp/posterm.sh/milestone/3): a real Mac, real phones, CI on Linux amd64/arm64 and macOS, uploads beyond 4 GB |
+| 1.0 — contracts             | [planned](https://github.com/l3dlp/posterm.sh/milestone/4): documented API, CLI, `posterm state` and data format, migrations, hook recipes, `posterm doctor` |
 | 4 — unified chat            | no. You talk to agents in their terminal. That's what terminals are for.                  |
 | 5 — wiki as memory          | no                                                                                        |
 | 6 — posterm.do as a tool      | no                                                                                        |

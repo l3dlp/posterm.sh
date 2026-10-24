@@ -367,6 +367,11 @@ est fait pour un seul opérateur, et ne prétend pas le contraire.
 
 ## Feuille de route
 
+La 1.0 est une promesse, pas une liste de fonctionnalités : on peut lui
+confier ses agents, une mise à jour ne casse rien, et ce qui est documenté ne
+bouge pas sans version majeure. Chaque étape a son
+[jalon](https://github.com/l3dlp/posterm.sh/milestones) et une issue par chantier.
+
 | phase                         | statut                                                                                       |
 | ----------------------------- | -------------------------------------------------------------------------------------------- |
 | 0 — binaire unique, auth      | fait : un binaire, un port ; jeton + cookie au lieu d'une liste d'IP                         |
@@ -374,6 +379,11 @@ est fait pour un seul opérateur, et ne prétend pas le contraire.
 | 2 — l'humain dans la boucle   | fait : l'état `question`, `posterm etat`, réponse depuis le mur, la diffusion ou le push       |
 | 3 — Web Push, badge, boîte    | fait : VAPID, badge de la PWA = nombre de questions, journal « depuis ta dernière visite »   |
 | 7 — tableau de bord, PWA      | fait : le mur, installable                                                                   |
+| 0.1.1 — secrets               | fait : les labos ne voient jamais les jetons ni les clés push du hub ; jeton de jonction pour les rayons |
+| 0.2 — confiance               | [prochaine](https://github.com/l3dlp/posterm.sh/milestone/1) : jetons de jonction par machine, releases signées, limite des connexions, journal des actions, tests du tunnel, fuzzing, SECURITY.md |
+| 0.3 — événements              | [prévue](https://github.com/l3dlp/posterm.sh/milestone/2) : états lus via les hooks de tmux au lieu d'un sondage à 1 Hz, arrêt propre, reconnexions, relance au démarrage |
+| 0.4 — vrai matériel           | [prévue](https://github.com/l3dlp/posterm.sh/milestone/3) : un vrai Mac, de vrais téléphones, CI Linux amd64/arm64 et macOS, envois au-delà de 4 Go |
+| 1.0 — contrats                | [prévue](https://github.com/l3dlp/posterm.sh/milestone/4) : API, CLI, `posterm state` et format des données documentés, migrations, recettes de hooks, `posterm doctor` |
 | 4 — chat unifié               | non. On parle aux agents dans leur terminal. Les terminaux servent à ça.                     |
 | 5 — wiki comme mémoire        | non                                                                                          |
 | 6 — posterm.do comme outil      | non                                                                                          |
