@@ -32,9 +32,9 @@ mkdir -p "$out"
 for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
 	os=${target%/*} arch=${target#*/}
 	say "$os/$arch"
-	CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -buildvcs=false -ldflags='-s -w' -o "$out/posterm-$os-$arch" ./src
+	CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -buildvcs=false -ldflags="-s -w -X main.version=$version" -o "$out/posterm-$os-$arch" ./src
 done
-macos/build.sh >/dev/null
+POSTERM_VERSION=$version macos/build.sh >/dev/null
 cp macos/dist/POSTERM-macos.zip "$out/"
 (cd "$out" && sha256sum posterm-* POSTERM-macos.zip >SHA256SUMS)
 

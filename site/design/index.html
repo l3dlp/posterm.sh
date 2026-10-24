@@ -68,6 +68,7 @@
 <li><a href="#dropping-privileges-before-tmux">Dropping privileges before tmux</a></li>
 <li><a href="#releases-are-signed">Releases are signed</a></li>
 <li><a href="#the-mac-package-touches-no-code">The Mac package touches no code</a></li>
+<li><a href="#one-line-installs-and-finishes-the-job">One line installs, and finishes the job</a></li>
 <li><a href="#what-we-will-not-build">What we will not build</a></li>
 <li><a href="#rules-we-keep">Rules we keep</a></li>
 <li><a href="#read-the-code">Read the code</a></li>
@@ -296,6 +297,19 @@ posterm state &lt;question|idle&gt; [text…]   from inside a lab: say where it 
 <p><strong>Why.</strong> The binary already runs on macOS unchanged. Everything Mac-specific is packaging, so it stays in <code>macos/</code>, in bash 3.2 (the one macOS ships).</p>
 <p><strong>What we refused.</strong> Tauri or Wails. A native webview means Rust or cgo, a Mac to build on, and no Web Push inside an embedded webview, so notifications would have to be rewritten natively. All of that buys a window Safari already gives us.</p>
 <p><strong>The cost.</strong> The binaries aren&#39;t notarized (that takes a paid Apple account), so the first launch needs &#34;Open Anyway&#34; or <code>bash install.command</code>. macOS guards Desktop, Documents, Downloads and iCloud Drive against background processes, so keep projects elsewhere.</p>
+<h2 id="one-line-installs-and-finishes-the-job">One line installs, and finishes the job <a class="hash" href="#one-line-installs-and-finishes-the-job" aria-label="link to this section">#</a></h2>
+<p><strong>The choice.</strong> <code>curl -fsSL https://posterm.sh/install | sh</code> is a POSIX <code>sh</code> script whose code all runs from a <code>main</code> called on its last line, so a download cut short runs nothing. It fetches the release asset for the CPU, checks it against <code>SHA256SUMS</code>, and then does what a newcomer would otherwise get stuck on:</p>
+<ul>
+<li>installs tmux with whatever package manager is there (apt, dnf, pacman, zypper, apk, xbps…), through sudo, after asking;</li>
+<li>puts <code>~/.local/bin</code> on the PATH of the user&#39;s shell (sh, bash, zsh, fish), one marked line per file, removed by <code>--uninstall</code>;</li>
+<li>writes <code>~/.posterm/.env</code>, which <code>posterm</code> reads from any directory that has no <code>.env</code> of its own;</li>
+<li>runs the hub as a systemd service with <code>KillMode=process</code>, a user service (with lingering, so logging out doesn&#39;t stop it) or a system one as root. Without systemd it starts the hub in the background and says it won&#39;t come back after a reboot;</li>
+<li>prints the URL and the token, plus the SSH tunnel to use when the machine is remote.</li>
+</ul>
+<p>Questions are read from <code>/dev/tty</code>, since stdin is the script itself. With no terminal (CI, cloud-init), every question takes its default. A <code>posterm.service</code> the script didn&#39;t write is never rewritten or removed, and a hub it didn&#39;t start is never killed: it matches its own processes by their exact command line.</p>
+<p><strong>Why.</strong> &#34;Download a binary&#34; isn&#39;t an install when the binary needs tmux, a PATH entry and something to keep it running. Each of those was a way to lose someone in the first five minutes.</p>
+<p><strong>What we refused.</strong> Distribution packages (.deb, .rpm, AUR) for now: one script tested on six distributions covers more ground than one package maintained badly. Docker: labs need the host&#39;s tools, files and logins, and a container is exactly what they must not live in.</p>
+<p><strong>The cost.</strong> A shell script that edits shell profiles and writes systemd units has to be tested distribution by distribution, in containers, as a user, as root and with systemd, and that testing has to be redone after every change. Distributions whose tmux is older than 3.1 (Ubuntu 20.04) get a clear &#34;too old&#34; and nothing more.</p>
 <h2 id="what-we-will-not-build">What we will not build <a class="hash" href="#what-we-will-not-build" aria-label="link to this section">#</a></h2>
 <ul>
 <li><strong>A unified chat.</strong> You talk to agents in their terminal. That&#39;s what terminals are for, and every agent&#39;s own UI is better at its own job than a lowest-common-denominator chat window.</li>

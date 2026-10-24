@@ -1,137 +1,540 @@
 #!/bin/sh
-# POSTERM installer.
+# POSTERM installer, for Linux and macOS.
 #
-#   curl -fsSL https://posterm.sh/install | sh
+#   curl -fsSL https://posterm.sh/install | sh                      install or update
+#   curl -fsSL https://posterm.sh/install | sh -s -- --uninstall    remove it
 #
-# Linux: puts the static binary in ~/.local/bin (or /usr/local/bin as root),
-#        checks tmux, tells you how to start. Nothing runs in the background.
-# macOS: fetches the Mac package and runs its installer (tmux via Homebrew,
-#        a LaunchAgent, Safari's Add to Dock as the app).
+# Linux, in order:
+#   1. downloads the static binary for this CPU, checked against SHA256SUMS;
+#   2. puts it in ~/.local/bin (/usr/local/bin as root);
+#   3. installs tmux with your package manager if it's missing (asks first);
+#   4. puts ~/.local/bin on your PATH (lines marked "# POSTERM" in your shell rc);
+#   5. writes ~/.posterm/.env once (language from $LANG), never overwrites it;
+#   6. runs the hub as a systemd service (a user service; a system one as root):
+#      up at boot, restarted on crash. No systemd: started in the background;
+#   7. prints the address and your token.
+# An update keeps the config, and the labs keep running.
+# macOS: fetches the Mac package and runs its installer (tmux via Homebrew, a
+# LaunchAgent, Safari's Add to Dock as the app).
+#
 # Every download is checked against the release's SHA256SUMS, and SHA256SUMS
 # against its SSH signature (ssh-keygen -Y, OpenSSH 8.1+) by the key below:
 # uploading a release isn't enough to ship you a binary.
 #
-# Read it before you pipe it: it's short on purpose.
-# POSTERM_REPO=owner/name picks another GitHub repo, POSTERM_BASE another
-# download URL (a mirror, or a local dir served over http for testing).
+# Options (after `sh -s --`): --yes (no questions: yes to all), --no-service,
+# --uninstall. POSTERM_REPO=owner/name or POSTERM_BASE=url: another source.
 # POSTERM_UNSIGNED=1 skips the signature check: don't.
+#
+# Read it before you pipe it.
 
-# Everything lives in main, called on the last line: a cut-off download runs
+# Everything runs from main, called on the last line: a cut-off download runs
 # nothing.
 main() {
 	set -eu
 	repo=${POSTERM_REPO:-l3dlp/posterm.sh}
 	base=${POSTERM_BASE:-https://github.com/$repo/releases/latest/download}
+	readme=https://github.com/$repo#readme
+	mode=install yes='' service=1
+	for a in "$@"; do
+		case $a in
+		--uninstall) mode=uninstall ;;
+		--yes | -y) yes=1 ;;
+		--no-service) service= ;;
+		*) printf 'unknown option: %s (known: --yes --no-service --uninstall)\n' "$a" >&2 && exit 2 ;;
+		esac
+	done
 
-	say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
-	ok() { printf '    %s\n' "$*"; }
-	die() { printf '\033[31mxx  %s\033[0m\n' "$*" >&2; exit 1; }
+	if [ -t 1 ]; then b='\033[1m' r='\033[31m' n='\033[0m'; else b='' r='' n=''; fi
+	# Questions go to the terminal: stdin is this script's pipe. No terminal
+	# (CI, cloud-init…): every question takes its default.
+	tty=
+	if [ -z "$yes" ] && (exec </dev/tty) 2>/dev/null; then tty=/dev/tty; fi
 
 	command -v curl >/dev/null || die "curl not found."
 	case $(uname -m) in
 	x86_64 | amd64) arch=amd64 ;;
 	aarch64 | arm64) arch=arm64 ;;
-	*) die "No build for $(uname -m). Build from source: https://github.com/$repo" ;;
+	*) die "No build for $(uname -m). Build from source: $readme" ;;
 	esac
-	os=$(uname -s)
 
 	tmp=$(mktemp -d)
-	trap 'rm -rf "$tmp"' EXIT INT TERM
+	trap 'rm -rf "$tmp"' EXIT
+	trap 'exit 130' INT TERM
+	sums=
 
-	sha256() {
-		if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
-	}
+	case $(uname -s) in
+	Darwin) mac ;;
+	Linux) if [ $mode = install ]; then linux_install; else linux_uninstall; fi ;;
+	*) die "No build for $(uname -s). Build from source: $readme" ;;
+	esac
+}
 
-	fetch() { # fetch <asset>: download it and check its sum
-		curl -fsSL --proto '=https,http' -o "$tmp/$1" "$base/$1" || die "Download failed: $base/$1"
-		want=$(grep " $1\$" "$tmp/SHA256SUMS" | cut -d' ' -f1)
-		[ -n "$want" ] || die "$1 is not in SHA256SUMS."
-		[ "$(sha256 "$tmp/$1")" = "$want" ] || die "Checksum mismatch for $1. Not installing."
-	}
+say() { printf "$b==> %s$n\n" "$*"; }
+ok() { printf '    %s\n' "$*"; }
+warn() { printf "$r!!  %s$n\n" "$*"; }
+die() {
+	printf "$r""xx  %s$n\n" "$*" >&2
+	exit 1
+}
 
-	say "POSTERM from $base"
-	curl -fsSL --proto '=https,http' -o "$tmp/SHA256SUMS" "$base/SHA256SUMS" || die "Download failed: $base/SHA256SUMS"
+ask() { # ask "question" Y|N: 0 means yes
+	[ -z "$yes" ] || return 0
+	[ -n "$tty" ] || { [ "$2" = Y ]; return; }
+	if [ "$2" = Y ]; then printf '    %s [Y/n] ' "$1" >/dev/tty; else printf '    %s [y/N] ' "$1" >/dev/tty; fi
+	read -r reply </dev/tty || reply=
+	case $reply in [yY]*) return 0 ;; [nN]*) return 1 ;; esac
+	[ "$2" = Y ]
+}
+
+asknever() { # a question that --yes does not answer: deleting things
+	[ -n "$tty" ] || return 1
+	printf '    %s [y/N] ' "$1" >/dev/tty
+	read -r reply </dev/tty || reply=
+	case $reply in [yY]*) return 0 ;; esac
+	return 1
+}
+
+sha256() {
+	if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
+
+fetch() { # fetch <asset>: download it, check its sum
+	if [ -z "$sums" ]; then
+		curl -fsSL --proto '=https,http' -o "$tmp/SHA256SUMS" "$base/SHA256SUMS" ||
+			die "Download failed: $base/SHA256SUMS"
+		verify_sums
+		sums=1
+	fi
+	curl -fsSL --proto '=https,http' -o "$tmp/$1" "$base/$1" || die "Download failed: $base/$1"
+	want=$(grep " $1\$" "$tmp/SHA256SUMS" | cut -d' ' -f1)
+	[ -n "$want" ] || die "$1 is not in SHA256SUMS."
+	[ "$(sha256 "$tmp/$1")" = "$want" ] || die "Checksum mismatch for $1. Not installing."
+}
+
+verify_sums() { # SHA256SUMS must be signed by the release key
 	if [ "${POSTERM_UNSIGNED:-}" = 1 ]; then
 		ok "signature NOT checked (POSTERM_UNSIGNED=1)"
+		return
+	fi
+	command -v ssh-keygen >/dev/null || die "ssh-keygen (OpenSSH) is needed to check the release signature."
+	if ! curl -fsSL --proto '=https,http' -o "$tmp/SHA256SUMS.sig" "$base/SHA256SUMS.sig" 2>/dev/null; then
+		# Releases from before signing (0.1.0, 0.1.1) are pinned instead: their
+		# SHA256SUMS must be byte for byte the one published. Nothing else
+		# gets in without a signature.
+		case $(sha256 "$tmp/SHA256SUMS") in
+		f3bb1572ec8c070da33f228b48402554cad1959d0252149ca8fd4713eab720a8 | \
+			25359d604e8387234fdf0c826c667e959994a363dbf28dc9a851bfd1edd3e649)
+			ok "release from before signing: its SHA256SUMS is pinned, ok"
+			;;
+		*) die "This release has no signature (SHA256SUMS.sig). Not installing." ;;
+		esac
+		return
+	fi
+	# The release signing key. Its twin is site/allowed_signers in the repo.
+	printf '%s\n' 'posterm-release namespaces="posterm-release" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPkqrKoiicpFCgk/BfC0+mIfClDrAgp+fxjeTmsD6c5s' >"$tmp/signers"
+	ssh-keygen -Y verify -f "$tmp/signers" -I posterm-release -n posterm-release \
+		-s "$tmp/SHA256SUMS.sig" <"$tmp/SHA256SUMS" >/dev/null 2>&1 ||
+		die "Bad signature on SHA256SUMS (or OpenSSH older than 8.1). Not installing."
+	ok "signature ok"
+}
+
+# ---------------------------------------------------------------- macOS
+
+mac() {
+	say "POSTERM for macOS, from $base"
+	fetch POSTERM-macos.zip
+	ok "checksum ok"
+	command -v unzip >/dev/null || die "unzip not found."
+	unzip -q "$tmp/POSTERM-macos.zip" -d "$tmp"
+	script=install.command
+	[ $mode = install ] || script=uninstall.command
+	# The Mac scripts ask their own questions: give them the terminal (or
+	# nothing, which takes the defaults), never this pipe.
+	in=/dev/null
+	[ -z "$tty" ] || in=/dev/tty
+	POSTERM_FROM_CURL=1 bash "$tmp/POSTERM/$script" <"$in"
+}
+
+# ---------------------------------------------------------------- Linux
+
+# Shared by install and uninstall.
+linux_setup() {
+	uid=$(id -u)
+	user=$(id -un)
+	data=$HOME/.posterm
+	if [ "$uid" = 0 ]; then
+		root=1 dir=/usr/local/bin su=
+		sc=systemctl unitdir=/etc/systemd/system
 	else
-		command -v ssh-keygen >/dev/null || die "ssh-keygen (OpenSSH) is needed to check the release signature."
-		if ! curl -fsSL --proto '=https,http' -o "$tmp/SHA256SUMS.sig" "$base/SHA256SUMS.sig" 2>/dev/null; then
-			# Releases from before signing (0.1.0, 0.1.1) are pinned instead: their
-			# SHA256SUMS must be byte for byte the one published. Nothing else
-			# gets in without a signature.
-			case $(sha256 "$tmp/SHA256SUMS") in
-			f3bb1572ec8c070da33f228b48402554cad1959d0252149ca8fd4713eab720a8 | \
-				25359d604e8387234fdf0c826c667e959994a363dbf28dc9a851bfd1edd3e649)
-				ok "release from before signing: its SHA256SUMS is pinned, ok"
-				;;
-			*) die "This release has no signature (SHA256SUMS.sig). Not installing." ;;
-			esac
-		else
-			# The release signing key. Its twin is site/allowed_signers in the repo.
-			printf '%s\n' 'posterm-release namespaces="posterm-release" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPkqrKoiicpFCgk/BfC0+mIfClDrAgp+fxjeTmsD6c5s' >"$tmp/signers"
-			ssh-keygen -Y verify -f "$tmp/signers" -I posterm-release -n posterm-release \
-				-s "$tmp/SHA256SUMS.sig" <"$tmp/SHA256SUMS" >/dev/null 2>&1 ||
-				die "Bad signature on SHA256SUMS (or OpenSSH older than 8.1). Not installing."
-			ok "signature ok"
+		root='' dir=$HOME/.local/bin
+		if command -v sudo >/dev/null; then su=sudo; elif command -v doas >/dev/null; then su=doas; else su=; fi
+		sc='systemctl --user' unitdir=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
+		# A shell from `su` has no XDG_RUNTIME_DIR, and systemctl --user needs it.
+		if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$uid" ]; then
+			export XDG_RUNTIME_DIR=/run/user/$uid
 		fi
 	fi
+	bin=$dir/posterm
+	unit=$unitdir/posterm.service
+	marker='# Written by https://posterm.sh/install'
+	up='' logs=''
+}
 
-	case $os in
-	Darwin)
-		fetch POSTERM-macos.zip
-		ok "checksum ok"
-		command -v unzip >/dev/null || die "unzip not found."
-		unzip -q "$tmp/POSTERM-macos.zip" -d "$tmp"
-		# The Mac installer asks questions: give it the terminal, not this pipe.
-		if [ -r /dev/tty ]; then
-			bash "$tmp/POSTERM/install.command" </dev/tty
-		else
-			bash "$tmp/POSTERM/install.command"
+systemd_ok() {
+	[ -d /run/systemd/system ] && command -v systemctl >/dev/null && $sc show-environment >/dev/null 2>&1
+}
+
+# ours: is posterm.service the one this script writes? One written by hand
+# (the README's /opt/posterm deployment) is never touched.
+ours() { [ -f "$unit" ] && grep -qF "$marker" "$unit"; }
+
+# hub_pids: hubs this script started in the background (no systemd), matched by
+# their exact command line, so a hub deployed elsewhere is never touched.
+hub_pids() { pgrep -u "$uid" -fx "$bin" 2>/dev/null || true; }
+
+linux_install() {
+	linux_setup
+	say "POSTERM from $base"
+	asset=posterm-linux-$arch
+	fetch "$asset"
+	ok "checksum ok"
+
+	mkdir -p "$dir"
+	# Next to it, then renamed: a running hub keeps its binary until it restarts.
+	install -m 755 "$tmp/$asset" "$bin.new"
+	mv -f "$bin.new" "$bin"
+	say "Installed $bin ($("$bin" version 2>/dev/null || echo '?'))"
+
+	tmux_step
+	path_step
+	config_step
+
+	if [ -z "$tmux_ok" ]; then
+		: # done_step says what to do
+	elif [ -z "$service" ]; then
+		ok "--no-service: nothing started."
+		start_hint
+	elif systemd_ok; then
+		service_step
+	else
+		background_step
+	fi
+	done_step
+}
+
+# tmux_version: empty when tmux is missing.
+tmux_version() {
+	if command -v tmux >/dev/null; then tmux -V | sed 's/[^0-9.]//g'; fi
+}
+tmux_recent() {
+	case $1 in '' | 0.* | 1.* | 2.* | 3.0*) return 1 ;; esac
+}
+
+tmux_step() {
+	tmux_ok=
+	v=$(tmux_version)
+	if tmux_recent "$v"; then
+		ok "tmux $v"
+		tmux_ok=1
+		return
+	fi
+	if [ -n "$v" ]; then
+		warn "tmux $v is too old: POSTERM needs 3.1 or later."
+	else
+		say "tmux is missing (POSTERM runs every lab in it)"
+	fi
+	pm=
+	if command -v apt-get >/dev/null; then pm=apt
+	elif command -v dnf >/dev/null; then pm='dnf install -y tmux'
+	elif command -v yum >/dev/null; then pm='yum install -y tmux'
+	elif command -v pacman >/dev/null; then pm='pacman -S --noconfirm --needed tmux'
+	elif command -v zypper >/dev/null; then pm='zypper --non-interactive install tmux'
+	elif command -v apk >/dev/null; then pm='apk add tmux'
+	elif command -v xbps-install >/dev/null; then pm='xbps-install -Sy tmux'
+	elif command -v emerge >/dev/null; then pm='emerge --noreplace app-misc/tmux'
+	elif command -v brew >/dev/null; then pm='brew install tmux'
+	fi
+	if [ -z "$pm" ]; then
+		ok "Install tmux 3.1 or later with your package manager, then run this again."
+		return
+	fi
+	show=$pm
+	[ "$pm" != apt ] || show='apt-get install -y tmux'
+	pre=$su
+	case $pm in brew*) pre= ;; esac # Homebrew refuses root, and needs none
+	case $pm in brew*) ;; *)
+		if [ -z "$root" ] && [ -z "$pre" ]; then
+			ok "Installing it needs root, and there is no sudo here. As root: $show"
+			return
 		fi
 		;;
-	Linux)
-		asset=posterm-linux-$arch
-		fetch "$asset"
-		ok "checksum ok"
-		if [ "$(id -u)" = 0 ]; then dir=/usr/local/bin; else dir=$HOME/.local/bin; fi
-		mkdir -p "$dir"
-		install -m 755 "$tmp/$asset" "$dir/posterm"
-		say "Installed $dir/posterm"
-
-		if command -v tmux >/dev/null; then
-			v=$(tmux -V | sed 's/[^0-9.]//g')
-			case $v in
-			0.* | 1.* | 2.* | 3.0*) ok "tmux $v is too old: POSTERM needs 3.1 or later." ;;
-			*) ok "tmux $v" ;;
-			esac
-		else
-			ok "tmux is missing, and POSTERM is built on it. Install it:"
-			if command -v apt-get >/dev/null; then ok "  sudo apt-get install tmux"
-			elif command -v dnf >/dev/null; then ok "  sudo dnf install tmux"
-			elif command -v pacman >/dev/null; then ok "  sudo pacman -S tmux"
-			elif command -v apk >/dev/null; then ok "  sudo apk add tmux"
-			elif command -v zypper >/dev/null; then ok "  sudo zypper install tmux"
-			else ok "  (your package manager) tmux"
-			fi
-		fi
-
-		case ":$PATH:" in
-		*":$dir:"*) cmd=posterm ;;
-		*)
-			cmd=$dir/posterm
-			ok "$dir is not on your PATH: add it, or call $cmd"
-			;;
-		esac
-		cat <<EOF
-
-Start the hub:     $cmd
-Then open:         http://127.0.0.1:8206  (the token is printed at first start)
-Run it as a service, add machines, lock it down:
-                   https://github.com/$repo#readme
-EOF
-		;;
-	*) die "No build for $os. Build from source: https://github.com/$repo" ;;
 	esac
+	if ! ask "Install it now: ${pre:+$pre }$show?" Y; then
+		ok "Later: ${pre:+$pre }$show"
+		return
+	fi
+	if [ "$pm" = apt ]; then
+		# A fresh machine (or container) may have no package lists yet.
+		$pre apt-get install -y tmux </dev/null ||
+			{ $pre apt-get update </dev/null && $pre apt-get install -y tmux </dev/null; } || true
+	else
+		$pre $pm </dev/null || true
+	fi
+	hash -r 2>/dev/null || true
+	v=$(tmux_version)
+	if tmux_recent "$v"; then
+		ok "tmux $v"
+		tmux_ok=1
+	elif [ -n "$v" ]; then
+		warn "This distribution ships tmux $v; POSTERM needs 3.1 or later (Ubuntu 22.04+, Debian 11+)."
+	else
+		warn "tmux didn't install. Try by hand: ${pre:+$pre }$show"
+	fi
+}
+
+path_step() {
+	case ":$PATH:" in *":$dir:"*) cmd=posterm && return ;; esac
+	cmd=$bin
+	[ -z "$root" ] || return 0 # /usr/local/bin missing from root's PATH: not ours to fix
+	line='case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac # POSTERM'
+	added=
+	addto "$HOME/.profile" # login shells: sh, dash, and bash without a .bash_profile
+	case ${SHELL##*/} in
+	bash)
+		addto "$HOME/.bashrc"
+		[ ! -f "$HOME/.bash_profile" ] || addto "$HOME/.bash_profile"
+		;;
+	zsh) addto "${ZDOTDIR:-$HOME}/.zshrc" ;;
+	fish)
+		f=${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/posterm.fish
+		if [ ! -f "$f" ]; then
+			mkdir -p "${f%/*}"
+			printf 'contains -- $HOME/.local/bin $PATH; or set -gx PATH $HOME/.local/bin $PATH # POSTERM\n' >"$f"
+			added="$added ${f#"$HOME"/}"
+		fi
+		;;
+	esac
+	[ -z "$added" ] || ok "added ~/.local/bin to your PATH in:$added"
+	ok "\`posterm\` works in new terminals. In this one: export PATH=\"\$HOME/.local/bin:\$PATH\""
+}
+
+addto() { # addto file: the PATH line, once
+	grep -qs '# POSTERM$' "$1" && return 0
+	printf '\n%s\n' "$line" >>"$1"
+	added="$added ${1#"$HOME"/}"
+}
+
+config_step() {
+	mkdir -p "$data"
+	chmod 700 "$data"
+	if [ ! -f "$data/.env" ]; then
+		lang=en
+		case ${LC_ALL:-${LC_MESSAGES:-${LANG:-}}} in fr*) lang=fr ;; esac
+		cat >"$data/.env" <<EOF
+# POSTERM on this machine. Every setting: $readme
+# \`posterm\` reads it from any directory that has no .env of its own.
+# After an edit, restart the hub (rerunning the installer does it).
+POSTERM_TITLE=POSTERM
+# en or fr
+POSTERM_LANG=$lang
+POSTERM_ADDR=127.0.0.1:8206
+EOF
+		chmod 600 "$data/.env"
+		ok "wrote ~/.posterm/.env (language: $lang)"
+	else
+		ok "keeping ~/.posterm/.env"
+	fi
+	addr=$(sed -n 's/^[[:space:]]*POSTERM_ADDR[[:space:]]*=[[:space:]]*//p' "$data/.env" | tail -n 1 | tr -d "\"' ")
+	addr=${addr:-127.0.0.1:8206}
+	port=${addr##*:}
+	case $addr in
+	:* | 0.0.0.0:* | \[::\]:*) url=http://127.0.0.1:$port ;;
+	*) url=http://$addr ;;
+	esac
+}
+
+answers() { [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$url/" 2>/dev/null || true)" != 000 ]; }
+
+wait_up() {
+	i=0
+	while [ $i -lt 40 ]; do
+		answers && return 0
+		sleep 0.5
+		i=$((i + 1))
+	done
+	return 1
+}
+
+service_step() {
+	if [ -f "$unit" ] && ! ours; then
+		ok "$unit was written by hand: left alone."
+		ok "Restart it yourself to run the new binary: $sc restart posterm"
+		return
+	fi
+	if ! ours; then
+		ok "A service starts the hub at boot and restarts it if it crashes."
+		if ! ask "Run the hub as a service?" Y; then
+			start_hint
+			return
+		fi
+		if answers; then
+			warn "Something already answers on $url. Stop it, or change POSTERM_ADDR in ~/.posterm/.env, then run this again."
+			return
+		fi
+	fi
+	shell=$(getent passwd "$user" 2>/dev/null | cut -d: -f7)
+	shell=${shell:-/bin/sh}
+	tdir=$(dirname "$(command -v tmux)")
+	if [ -n "$root" ]; then after='After=network-online.target' wanted=multi-user.target; else after='' wanted=default.target; fi
+	mkdir -p "$unitdir"
+	cat >"$unit" <<EOF
+$marker
+# Rerunning it rewrites this file; delete the line above to keep your edits.
+[Unit]
+Description=POSTERM, the lab wall
+$after
+
+[Service]
+WorkingDirectory=$data
+ExecStart=$bin
+Environment=HOME=$HOME
+Environment=SHELL=$shell
+Environment=PATH=$dir:$tdir:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Restart=always
+RestartSec=2
+# The labs live in tmux, which the hub starts: stopping or updating the hub
+# must not take them down with it.
+KillMode=process
+
+[Install]
+WantedBy=$wanted
+EOF
+	$sc daemon-reload
+	$sc enable posterm >/dev/null 2>&1 || true
+	$sc restart posterm || true
+	if [ -n "$root" ]; then logs='journalctl -u posterm -f'; else logs='journalctl --user -u posterm -f'; fi
+	ok "service: $unit"
+	if [ -z "$root" ] && command -v loginctl >/dev/null &&
+		[ "$(loginctl show-user "$user" -p Linger --value 2>/dev/null || true)" != yes ]; then
+		# Without lingering, systemd stops user services at logout.
+		if loginctl enable-linger "$user" 2>/dev/null; then
+			ok "it keeps running after you log out (loginctl enable-linger)"
+		else
+			ok "it stops when you log out; to keep it running: sudo loginctl enable-linger $user"
+		fi
+	fi
+	if wait_up; then
+		up=1
+	else
+		$sc status posterm --no-pager -n 15 2>&1 | sed 's/^/    /' || true
+		warn "The hub didn't answer on $url. Logs: $logs"
+	fi
+}
+
+background_step() {
+	ok "No systemd here: the hub runs in the background until the next reboot."
+	old=$(hub_pids)
+	if [ -n "$old" ]; then
+		kill $old 2>/dev/null || true # the hub only: the labs live in tmux
+		sleep 1
+	elif answers; then
+		warn "Something already answers on $url. Stop it, or change POSTERM_ADDR in ~/.posterm/.env, then run this again."
+		return
+	elif ! ask "Start it now?" Y; then
+		start_hint
+		return
+	fi
+	# A plain background command: no subshell left holding this script's output.
+	cd "$data"
+	nohup "$bin" </dev/null >>"$data/hub.log" 2>&1 &
+	cd - >/dev/null
+	logs='tail -f ~/.posterm/hub.log'
+	if wait_up; then
+		up=1
+	else
+		tail -n 15 "$data/hub.log" 2>/dev/null | sed 's/^/    /' || true
+		warn "The hub didn't answer on $url. Log: ~/.posterm/hub.log"
+	fi
+}
+
+start_hint() {
+	ok "Start the hub by hand: $cmd   (it reads ~/.posterm/.env)"
+}
+
+done_step() {
+	if [ -z "$tmux_ok" ]; then
+		printf '\nOnce tmux 3.1+ is there, run this installer again: it starts the hub.\n'
+		return
+	elif [ -z "$up" ]; then
+		printf '\nThen open %s. Docs: %s\n' "$url" "$readme"
+		return
+	fi
+	say "POSTERM is running: $url"
+	if [ -s "$data/token" ]; then
+		ok "token: $(cat "$data/token")   (again: cat ~/.posterm/token)"
+	else
+		ok "token: the POSTERM_TOKEN in your environment or ~/.posterm/.env"
+	fi
+	if [ -n "${SSH_CONNECTION:-}" ]; then
+		ok ""
+		ok "This machine is remote, and the hub only listens on it. From your computer:"
+		ok "  ssh -NL $port:127.0.0.1:$port $user@$(hostname)"
+		ok "then open http://127.0.0.1:$port there. A domain with TLS: see the README."
+	fi
+	ok ""
+	ok "logs:    $logs"
+	ok "update:  rerun this installer (labs keep running)"
+	ok "remove:  curl -fsSL https://posterm.sh/install | sh -s -- --uninstall"
+	ok "more:    $readme"
+}
+
+linux_uninstall() {
+	linux_setup
+	say "Removing POSTERM"
+	if systemd_ok && ours; then
+		$sc disable --now posterm >/dev/null 2>&1 || true
+		rm -f "$unit"
+		$sc daemon-reload
+		ok "service removed"
+	elif [ -f "$unit" ] && ! ours; then
+		ok "$unit was written by hand: left alone"
+	elif [ -f "$unit" ]; then
+		rm -f "$unit" # ours, but systemd is out of reach right now
+	fi
+	old=$(hub_pids)
+	if [ -n "$old" ]; then
+		kill $old 2>/dev/null || true
+		ok "hub stopped"
+	fi
+	if [ -f "$bin" ]; then
+		rm -f "$bin"
+		ok "removed $bin"
+	fi
+	for f in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.bash_profile" "${ZDOTDIR:-$HOME}/.zshrc"; do
+		if grep -qs '# POSTERM$' "$f"; then
+			sed -i '/# POSTERM$/d' "$f"
+			ok "PATH line removed from ${f#"$HOME"/}"
+		fi
+	done
+	rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/posterm.fish"
+	if [ -S "$data/tmux.sock" ] && command -v tmux >/dev/null &&
+		tmux -S "$data/tmux.sock" list-sessions >/dev/null 2>&1; then
+		if asknever "Labs are still running. Stop them all?"; then
+			tmux -S "$data/tmux.sock" kill-server
+			ok "labs stopped"
+		else
+			ok "labs left running (tmux -S ~/.posterm/tmux.sock ls)"
+		fi
+	fi
+	if [ -d "$data" ]; then
+		if asknever "Delete ~/.posterm too (config, token, lab list, journal)?"; then
+			rm -rf "$data"
+			ok "deleted ~/.posterm"
+		else
+			ok "kept ~/.posterm"
+		fi
+	fi
+	ok "tmux stays installed."
 }
 
 main "$@"

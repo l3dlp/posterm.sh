@@ -127,12 +127,31 @@ posterm spoke add|revoke|list [name]    on the hub: one join token per machine
 curl -fsSL https://posterm.sh/install | sh
 ```
 
-Linux: the static binary goes to `~/.local/bin` (`/usr/local/bin` as root), and
-it tells you if tmux is missing. macOS: it runs the Mac package below. Every
-download is checked against the release's `SHA256SUMS`, and `SHA256SUMS`
+On Linux it goes all the way:
+
+1. the static binary into `~/.local/bin` (`/usr/local/bin` as root);
+2. tmux from your package manager if it's missing or older than 3.1 (it asks
+   first, and uses sudo if you're not root);
+3. `~/.local/bin` on your PATH (one line marked `# POSTERM` in your shell rc);
+4. `~/.posterm/.env`, written once, in French if your `$LANG` is;
+5. the hub as a systemd service (a user service, or a system one as root) that
+   starts at boot and comes back after a crash. No systemd: started in the
+   background;
+6. the address and the token, printed.
+
+Tested on Ubuntu 22.04 and 24.04, Debian 12, Arch, Fedora and Alpine, as a user
+and as root. Ubuntu 20.04 ships tmux 3.0: too old, and the script says so. On
+macOS it runs the Mac package below. Every download is checked against the
+release's `SHA256SUMS`, and `SHA256SUMS`
 against the project's signature (`ssh-keygen -Y`, the key is in the script).
-It's 100-odd lines of `sh`: read it first,
-[it's short on purpose](https://posterm.sh/install).
+Rerun it to update (labs keep running). Options go
+after `sh -s --`: `--uninstall`, `--yes` (no questions), `--no-service`. A
+`posterm.service` you wrote yourself is never touched. Read it first:
+[every step is commented](https://posterm.sh/install).
+
+On a remote machine the hub only listens on `127.0.0.1`. From your computer:
+`ssh -NL 8206:127.0.0.1:8206 you@host`, then open `http://127.0.0.1:8206`. For a
+domain with TLS, see [Deploying the hub](#deploying-the-hub).
 
 From source, you need Go and `tmux` >= 3.1. That's the dependency list.
 
@@ -205,8 +224,9 @@ stop guessing.
 
 ## Configuration
 
-Environment variables, or a `.env` in the working directory (commented
-template: `.env.example`; the real environment wins). Everything that belongs
+Environment variables, or a `.env` in the working directory, or, when there is
+none, `~/.posterm/.env` (the one the installers write). Commented template:
+`.env.example`; the real environment wins. Everything that belongs
 to *one* installation (name, language, domain, token, machine names, paths)
 lives there. Never in the code, never in this repo.
 

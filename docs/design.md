@@ -31,6 +31,7 @@ aspirational: every claim maps to code you can read in an afternoon, under
 - [Dropping privileges before tmux](#dropping-privileges-before-tmux)
 - [The Mac package touches no code](#the-mac-package-touches-no-code)
 - [Releases are signed](#releases-are-signed)
+- [One line installs, and finishes the job](#one-line-installs-and-finishes-the-job)
 - [What we will not build](#what-we-will-not-build)
 - [Rules we keep](#rules-we-keep)
 - [Read the code](#read-the-code)
@@ -682,6 +683,48 @@ gives us.
 so the first launch needs "Open Anyway" or `bash install.command`. macOS
 guards Desktop, Documents, Downloads and iCloud Drive against background
 processes, so keep projects elsewhere.
+
+## One line installs, and finishes the job
+
+**The choice.** `curl -fsSL https://posterm.sh/install | sh` is a POSIX `sh`
+script whose code all runs from a `main` called on its last line, so a
+download cut short runs nothing. It fetches the release asset for the CPU,
+checks it against `SHA256SUMS`, and then does what a newcomer would otherwise
+get stuck on:
+
+- installs tmux with whatever package manager is there (apt, dnf, pacman,
+  zypper, apk, xbps…), through sudo, after asking;
+- puts `~/.local/bin` on the PATH of the user's shell (sh, bash, zsh, fish),
+  one marked line per file, removed by `--uninstall`;
+- writes `~/.posterm/.env`, which `posterm` reads from any directory that has
+  no `.env` of its own;
+- runs the hub as a systemd service with `KillMode=process`, a user service
+  (with lingering, so logging out doesn't stop it) or a system one as root.
+  Without systemd it starts the hub in the background and says it won't come
+  back after a reboot;
+- prints the URL and the token, plus the SSH tunnel to use when the machine is
+  remote.
+
+Questions are read from `/dev/tty`, since stdin is the script itself. With no
+terminal (CI, cloud-init), every question takes its default. A
+`posterm.service` the script didn't write is never rewritten or removed, and a
+hub it didn't start is never killed: it matches its own processes by their
+exact command line.
+
+**Why.** "Download a binary" isn't an install when the binary needs tmux, a
+PATH entry and something to keep it running. Each of those was a way to lose
+someone in the first five minutes.
+
+**What we refused.** Distribution packages (.deb, .rpm, AUR) for now: one
+script tested on six distributions covers more ground than one package
+maintained badly. Docker: labs need the host's tools, files and logins, and a
+container is exactly what they must not live in.
+
+**The cost.** A shell script that edits shell profiles and writes systemd
+units has to be tested distribution by distribution, in containers, as a
+user, as root and with systemd, and that testing has to be redone after every
+change. Distributions whose tmux is older than 3.1 (Ubuntu 20.04) get a clear
+"too old" and nothing more.
 
 ## What we will not build
 

@@ -23,7 +23,9 @@ domain=gui/$(id -u)
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 ok() { printf '    %s\n' "$*"; }
-pause() { if [ -t 0 ]; then read -r -p "Press Enter to close this window. " _ || true; fi; }
+# Double-clicked, Terminal closes the window when we're done: wait. Run by the
+# posterm.sh one-liner, the user's own terminal stays: don't.
+pause() { if [ -t 0 ] && [ -z "${POSTERM_FROM_CURL:-}" ]; then read -r -p "Press Enter to close this window. " _ || true; fi; }
 die() {
 	printf '\n\033[31mxx  %s\033[0m\n' "$*" >&2
 	pause
@@ -45,6 +47,15 @@ if [ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" = 1 ]; then
 else
 	arch=amd64
 fi
+# The user's login shell, and the profile it reads in every new Terminal.
+shell=$(dscl . -read "/Users/$(id -un)" UserShell 2>/dev/null | awk '{print $2}' || true)
+shell=${shell:-/bin/zsh}
+case $shell in
+*/zsh) rc=$HOME/.zprofile ;;
+*/bash) rc=$HOME/.bash_profile ;;
+*) rc= ;;
+esac
+
 src=$here/bin/posterm-darwin-$arch
 [ -f "$src" ] || die "Missing $src. Unzip the whole POSTERM folder, then run this again."
 
@@ -74,6 +85,12 @@ if [ -z "$tmux" ]; then
 		/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 		brew=$(find_brew)
 		[ -n "$brew" ] || die "Homebrew didn't install. See https://brew.sh."
+	fi
+	# Homebrew's installer only *prints* how to put brew on the PATH. On Apple
+	# silicon that leaves brew and tmux out of every new Terminal: do it.
+	if [ "$brew" = /opt/homebrew/bin/brew ] && [ -n "$rc" ] && ! grep -qs 'brew shellenv' "$rc"; then
+		printf '\neval "$(/opt/homebrew/bin/brew shellenv)" # Homebrew, added by the POSTERM installer\n' >>"$rc"
+		ok "added Homebrew to your PATH in $rc"
 	fi
 	ok "brew install tmux"
 	"$brew" install tmux
@@ -105,6 +122,7 @@ codesign --force --sign - "$bin_dir/posterm.new" >/dev/null 2>&1 ||
 	ok "warning: ad-hoc signing failed; macOS may refuse to run the binary."
 chmod 755 "$bin_dir/posterm.new"
 mv -f "$bin_dir/posterm.new" "$bin_dir/posterm"
+ok "$("$bin_dir/posterm" version 2>/dev/null || echo posterm)"
 
 # --- config, written once -----------------------------------------------------
 mkdir -p "$data"
@@ -136,8 +154,6 @@ fi
 
 # --- LaunchAgent --------------------------------------------------------------
 say "Starting the hub at every login"
-shell=$(dscl . -read "/Users/$(id -un)" UserShell 2>/dev/null | awk '{print $2}' || true)
-shell=${shell:-/bin/zsh}
 mkdir -p "$(dirname "$plist")"
 # AbandonProcessGroup: stopping or updating the hub must never take tmux, and
 # therefore the labs, down with it. SHELL: labs start through your login shell,
@@ -201,11 +217,6 @@ ok "$url is up"
 
 # --- `posterm` in your Terminal and inside the labs ----------------------------
 if ! "$shell" -lc 'command -v posterm' >/dev/null 2>&1; then
-	case $shell in
-	*/zsh) rc=$HOME/.zprofile ;;
-	*/bash) rc=$HOME/.bash_profile ;;
-	*) rc= ;;
-	esac
 	if [ -n "$rc" ]; then
 		printf '\nexport PATH="$HOME/.local/bin:$PATH" # POSTERM\n' >>"$rc"
 		ok "added ~/.local/bin to your PATH in $rc (new Terminal windows)"

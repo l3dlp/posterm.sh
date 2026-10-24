@@ -12,7 +12,9 @@ domain=gui/$(id -u)
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 ok() { printf '    %s\n' "$*"; }
-pause() { if [ -t 0 ]; then read -r -p "Press Enter to close this window. " _ || true; fi; }
+# Double-clicked, Terminal closes the window when we're done: wait. Run by the
+# posterm.sh one-liner, the user's own terminal stays: don't.
+pause() { if [ -t 0 ] && [ -z "${POSTERM_FROM_CURL:-}" ]; then read -r -p "Press Enter to close this window. " _ || true; fi; }
 # ask_no "question": default no.
 ask_no() {
 	local a

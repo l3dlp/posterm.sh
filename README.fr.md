@@ -143,12 +143,34 @@ posterm spoke add|revoke|list [nom]     sur le hub : un jeton de jonction par ma
 curl -fsSL https://posterm.sh/install | sh
 ```
 
-Linux : le binaire statique va dans `~/.local/bin` (`/usr/local/bin` en root),
-et le script te prévient si tmux manque. macOS : il lance le paquet Mac
-ci-dessous. Chaque téléchargement est vérifié contre le `SHA256SUMS` de la
-version, et `SHA256SUMS` contre la signature du projet (`ssh-keygen -Y`, la
-clé est dans le script). C'est une centaine de lignes de `sh` : lis-le avant,
-[il est court exprès](https://posterm.sh/install).
+Sous Linux, il va jusqu'au bout :
+
+1. le binaire statique dans `~/.local/bin` (`/usr/local/bin` en root) ;
+2. tmux via ton gestionnaire de paquets s'il manque ou date d'avant la 3.1 (il
+   demande d'abord, et passe par sudo si tu n'es pas root) ;
+3. `~/.local/bin` dans ton PATH (une ligne marquée `# POSTERM` dans le rc de ton
+   shell) ;
+4. `~/.posterm/.env`, écrit une seule fois, en français si ton `$LANG` l'est ;
+5. le hub en service systemd (service utilisateur, ou système en root) qui
+   démarre au boot et revient après un plantage. Sans systemd : lancé en
+   arrière-plan ;
+6. l'adresse et le jeton, affichés.
+
+Testé sur Ubuntu 22.04 et 24.04, Debian 12, Arch, Fedora et Alpine, en
+utilisateur comme en root. Ubuntu 20.04 livre tmux 3.0 : trop vieux, et le
+script le dit. Sur macOS, il lance le paquet Mac ci-dessous. Chaque
+téléchargement est vérifié contre le `SHA256SUMS` de la version, et
+`SHA256SUMS` contre la signature du projet (`ssh-keygen -Y`, la clé est dans le
+script). Relance-le
+pour mettre à jour (les labos continuent de tourner). Les options se mettent
+après `sh -s --` : `--uninstall`, `--yes` (aucune question), `--no-service`. Un
+`posterm.service` que tu as écrit toi-même n'est jamais touché. Lis-le avant :
+[chaque étape est commentée](https://posterm.sh/install).
+
+Sur une machine distante, le hub n'écoute que sur `127.0.0.1`. Depuis ton
+ordinateur : `ssh -NL 8206:127.0.0.1:8206 toi@machine`, puis ouvre
+`http://127.0.0.1:8206`. Pour un domaine avec TLS, voir
+[Déployer le hub](#déployer-le-hub).
 
 Depuis les sources, il te faut Go et `tmux` >= 3.1. C'est toute la liste des
 dépendances.
@@ -224,8 +246,9 @@ hooks et arrête de deviner.
 
 ## Configuration
 
-Variables d'environnement, ou un `.env` dans le dossier de travail (modèle
-commenté : `.env.example` ; l'environnement réel l'emporte). Tout ce qui
+Variables d'environnement, ou un `.env` dans le dossier de travail, ou, s'il
+n'y en a pas, `~/.posterm/.env` (celui qu'écrivent les installeurs). Modèle
+commenté : `.env.example` ; l'environnement réel l'emporte. Tout ce qui
 appartient à *une* installation (nom, langue, domaine, jeton, noms de machines,
 chemins) vit là. Jamais dans le code, jamais dans ce dépôt.
 

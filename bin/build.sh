@@ -34,7 +34,7 @@ go test ./src
 say "building ($(go env GOVERSION))"
 rm -f posterm.new
 trap 'rm -f posterm.new' EXIT
-CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-s -w' -o posterm.new ./src
+CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -X main.version=$(git describe --tags --always 2>/dev/null || echo dev)" -o posterm.new ./src
 
 old=posterm
 [ -f "$old" ] || [ ! -f monia ] || [ -L monia ] || old=monia # first build after the rename

@@ -21,7 +21,7 @@ rm -rf "$pkg" "$zip"
 mkdir -p "$pkg/bin"
 for arch in arm64 amd64; do
 	say "darwin/$arch ($(go env GOVERSION))"
-	CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -C "$root" -trimpath -buildvcs=false -ldflags='-s -w' \
+	CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -C "$root" -trimpath -buildvcs=false -ldflags="-s -w -X main.version=${POSTERM_VERSION:-dev}" \
 		-o "$pkg/bin/posterm-darwin-$arch" ./src
 done
 cp "$here/install.command" "$here/uninstall.command" "$here/README.md" "$pkg/"

@@ -5,6 +5,7 @@
 //	posterm join [hub-url]        a spoke: publishes this machine's labs to the hub
 //	posterm lab <dir> [cmd…]      adds and starts a lab on this machine
 //	posterm state <question|idle> [text…]   from inside a lab: say where it is
+//	posterm version | help
 package main
 
 import (
@@ -17,6 +18,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// version is stamped at build time: -ldflags "-X main.version=v1.2.3".
+var version = "dev"
 
 func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
@@ -96,14 +100,34 @@ func usage() {
 	os.Exit(2)
 }
 
+// envFile is where the config lives: ./.env if there is one (a server checkout,
+// /opt/posterm), else the data dir's .env, the one the installers write, so
+// `posterm` reads the same config from any directory.
+func envFile() string {
+	if _, err := os.Stat(".env"); err == nil {
+		return ".env"
+	}
+	return filepath.Join(dataDir(), ".env")
+}
+
 func main() {
 	log.SetFlags(log.Ltime)
 	gin.SetMode(gin.ReleaseMode)
-	loadDotEnv(".env")
+	loadDotEnv(envFile())
 	args := os.Args[1:]
 	cmd := ""
 	if len(args) > 0 {
 		cmd, args = args[0], args[1:]
+	}
+
+	// Neither needs tmux, nor touches the data dir.
+	switch cmd {
+	case "version", "-v", "--version":
+		fmt.Println("posterm", version)
+		return
+	case "help", "-h", "--help":
+		fmt.Print(T("cli.usage", "title", cfgOr("TITLE", "POSTERM")))
+		return
 	}
 
 	// `posterm state` is run by the labs themselves: the filesystem is the IPC.
