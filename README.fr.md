@@ -448,7 +448,8 @@ docs/design.md   pourquoi c'est construit ainsi : chaque choix, ce qu'on a refus
 docs/caddy.md    lever la limite de taille de Caddy pour les envois
 docs/img/        captures d'écran (labos de démo, rien de réel)
 docs/x/          visuels pour les réseaux : sources HTML, PNG, render.cjs
-site/            posterm.sh : pages statiques (en, fr), la page du doc technique, le script d'install
+site/            posterm.sh : pages statiques (en, fr), la page du doc technique, le script d'install ;
+                 site/build.sh régénère, site/deploy.sh publie (POSTERM_SITE_DIR)
 LICENSE          MIT
 data/            POSTERM_DATA si le .env le met là (registre, journal, socket tmux), pas versionné
 ```

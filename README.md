@@ -416,7 +416,8 @@ docs/design.md   why it's built this way: every choice, what we refused, what it
 docs/caddy.md    lifting Caddy's body limit for uploads
 docs/img/        screenshots (demo labs, nothing real)
 docs/x/          social cards: HTML sources, PNGs, render.cjs
-site/            posterm.sh: static pages (en, fr), the design doc page, the install script
+site/            posterm.sh: static pages (en, fr), the design doc page, the install script;
+                 site/build.sh regenerates, site/deploy.sh publishes (POSTERM_SITE_DIR)
 LICENSE          MIT
 data/            POSTERM_DATA if .env puts it there (registry, journal, tmux socket), not versioned
 ```
