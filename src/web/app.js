@@ -620,29 +620,39 @@ function upload(url, form, progress, sent, signal) {
 const sizeOf = b => b < 1024 ? t('size.b', { n: b }) : b < 1 << 20 ? t('size.k', { n: (b / 1024).toFixed(0) })
   : b < 1 << 30 ? t('size.m', { n: (b / (1 << 20)).toFixed(1) }) : t('size.g', { n: (b / (1 << 30)).toFixed(2) });
 
-const shellBox = $('#shell');
-shellBox.addEventListener('dragenter', e => {
-  if (!hasFiles(e) || dropping) return;
+// The whole lab view takes the drop, not only the bash: a file let go over the
+// agent's terminal goes to the bash's cwd too. A hidden bash opens while the
+// files hover, to show where they will land, and closes again if they leave.
+const dropZone = $('#lab');
+let openedForDrop = false;
+dropZone.addEventListener('dragenter', e => {
+  if (!hasFiles(e) || dropping || !cur) return;
   e.preventDefault();
   if (dragDepth++) return;
+  if (!shellOn()) { openedForDrop = true; shellOff.delete(cur); attachShell(); }
   dropSay(t('drop.where'));
   api(path(cur, '/sh/check'), { paths: [] })
     .then(({ dir }) => { if (dragDepth) dropSay(t('drop.into', { dir })); })
     .catch(err => { if (dragDepth) dropSay(err.message); });
 });
-shellBox.addEventListener('dragover', e => {
-  if (!hasFiles(e)) return;
+dropZone.addEventListener('dragover', e => {
+  if (!hasFiles(e) || !cur) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = dropping ? 'none' : 'copy';
 });
-shellBox.addEventListener('dragleave', e => {
+dropZone.addEventListener('dragleave', e => {
   if (!hasFiles(e) || dropping) return;
-  if (--dragDepth <= 0) { dragDepth = 0; dropVeil.hidden = true; }
+  if (--dragDepth > 0) return;
+  dragDepth = 0;
+  dropVeil.hidden = true;
+  if (openedForDrop) { openedForDrop = false; shellOff.add(cur); attachShell(); }
 });
-shellBox.addEventListener('drop', guard(async e => {
-  if (!hasFiles(e)) return;
+dropZone.addEventListener('drop', guard(async e => {
+  if (!hasFiles(e) || !cur) return;
   e.preventDefault();
   dragDepth = 0;
+  // Dropped: the bash stays open where the files went.
+  if (openedForDrop) { openedForDrop = false; store.set('shellOff', [...shellOff]); }
   if (dropping) return;
   // Alt + drop: raw, no zip, no unpacking.
   const key = cur, raw = e.altKey, read = dropped(e.dataTransfer);

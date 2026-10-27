@@ -69,8 +69,10 @@ The color tells you whether it needs you. Nothing else on the screen matters.
 
 ![Dropping on the bash uploads into its current directory](docs/img/drop.png)
 
-- Drag files *or whole directories* onto the bash. They land in **its cwd**,
-  wherever you `cd`'d. The target is shown before you let go.
+- Drag files *or whole directories* anywhere on the lab, the agent's terminal
+  included. They land in **the bash's cwd**, wherever you `cd`'d. The target is
+  shown before you let go; a hidden bash opens to show it, and stays open if
+  you drop.
 - Directories are zipped in the browser (deflate; media and archives stored
   as is, recompressing JPEGs is a waste of everyone's time), streamed once,
   unpacked server-side. A dropped `.zip` is unpacked into `<name>/` and not kept.
@@ -119,6 +121,7 @@ posterm join [hub-url]        a spoke: publish this machine's labs to the hub
 posterm lab <dir> [cmd…]      spawn a lab here, from the shell
 posterm state <question|idle> [text…]   from inside a lab: say where it is
 posterm spoke add|revoke|list [name]    on the hub: one join token per machine
+posterm token rotate [join|access]      on the hub: a new token, printed once
 ```
 
 ## Getting started
@@ -161,8 +164,12 @@ bin/build.sh           # gofmt + vet, static build, backs up the old binary
 ./posterm                # http://127.0.0.1:8206
 ```
 
-First start generates an access token and a join token for spokes, prints them
-and keeps them in `$POSTERM_DATA/secrets/`. Open the page, paste the access
+First start generates an access token and a join token for spokes and keeps
+them in `$POSTERM_DATA/secrets/`. On a terminal it prints them; under systemd or
+any redirection it prints only where they are, because a token in a log
+outlives every rotation. `posterm token rotate [join|access]` writes a new one,
+prints it once and tells you to restart the hub, which keeps its tokens in
+memory. Open the page, paste the access
 token, hit **+ lab**: pick a dir (with completion) and a command (recent ones
 first).
 
@@ -340,6 +347,8 @@ built for one operator, and it doesn't pretend otherwise.
   browsers. No token, no data: you get an empty page and a login box.
 - Failed logins are budgeted (five per client, thirty for the hub, then
   `429`).
+- Tokens are never written to a log: the hub prints them on a terminal only,
+  and `posterm token rotate` shows a new one once, on its own stdout.
 - Each spoke joins with its own token (`posterm spoke add <name>`), which
   opens `/join` for that name and nothing else, and `posterm join` refuses to
   send it in cleartext to a remote hub.

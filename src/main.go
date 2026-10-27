@@ -157,6 +157,9 @@ func main() {
 		case "spoke": // spokes.json must stay out of the labs' hands: write it as we started
 			spokeCommand(data, args)
 			os.Exit(0)
+		case "token": // secrets/ belongs to whoever starts the hub: rotate as that user
+			tokenCommand(data, args)
+			os.Exit(0)
 		}
 	})
 	engine, err := NewEngine(data)

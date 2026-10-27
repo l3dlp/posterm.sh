@@ -470,7 +470,12 @@ done_step() {
 		return
 	fi
 	say "POSTERM is running: $url"
-	if [ -s "$data/token" ]; then
+	# The hub keeps its token in secrets/ (0.2+) and no longer prints it in
+	# hub.log: this terminal is the one place it is shown. A hub older than
+	# 0.2 kept it next to the data, in token.
+	if [ -s "$data/secrets/token" ]; then
+		ok "token: $(cat "$data/secrets/token")   (again: cat ~/.posterm/secrets/token, or posterm token rotate access)"
+	elif [ -s "$data/token" ]; then
 		ok "token: $(cat "$data/token")   (again: cat ~/.posterm/token)"
 	else
 		ok "token: the POSTERM_TOKEN in your environment or ~/.posterm/.env"

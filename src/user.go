@@ -27,6 +27,7 @@ func becomeUser(prepare func(data string)) string {
 		log.Fatal(err)
 	}
 	if name == "" && group == "" {
+		ownEnv(me)
 		data := dataDir() // stay who we are
 		checkSocket(data, os.Getuid())
 		prepare(data)
@@ -48,6 +49,7 @@ func becomeUser(prepare func(data string)) string {
 		gid = g.Gid
 	}
 	if u.Uid == me.Uid && gid == me.Gid {
+		ownEnv(me)
 		data := dataDir()
 		checkSocket(data, os.Getuid())
 		prepare(data)
@@ -173,6 +175,21 @@ func handOver(data string, uid, gid int) {
 				chown(filepath.Join(dir, en.Name()))
 			}
 		}
+	}
+}
+
+// ownEnv fills in what a service manager leaves out when we keep our own
+// identity: systemd starts the hub with neither HOME nor SHELL, and the labs
+// would then run `/bin/sh -lic`, which reads no .bashrc and finds no claude in
+// ~/.bun/bin or ~/.local/bin. What is already set is kept.
+func ownEnv(me *user.User) {
+	for k, v := range map[string]string{"HOME": me.HomeDir, "USER": me.Username, "LOGNAME": me.Username} {
+		if os.Getenv(k) == "" && v != "" {
+			os.Setenv(k, v)
+		}
+	}
+	if os.Getenv("SHELL") == "" {
+		os.Setenv("SHELL", labShell(me.Username))
 	}
 }
 

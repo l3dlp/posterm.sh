@@ -51,8 +51,8 @@ func loadSecrets(data string) Secrets {
 	ensureSecretsDir(dir)
 
 	var s Secrets
-	s.Token = secret(dir, "token", cfg("TOKEN"), filepath.Join(data, "token"), "log.token")
-	s.JoinToken = secret(dir, "join-token", cfg("JOIN_TOKEN"), "", "log.join_token")
+	s.Token = secret(dir, "token", cfg("TOKEN"), filepath.Join(data, "token"), "log.token", "log.token_hidden")
+	s.JoinToken = secret(dir, "join-token", cfg("JOIN_TOKEN"), "", "log.join_token", "log.join_token_hidden")
 
 	keysFile := filepath.Join(dir, "vapid.json")
 	var keys vapidKeys
@@ -100,7 +100,7 @@ func ensureSecretsDir(dir string) {
 
 // secret returns the configured value, else the stored one, else the legacy
 // file's (moved into secrets/), else a new random one, announced once.
-func secret(dir, name, configured, legacy, announce string) string {
+func secret(dir, name, configured, legacy, announce, hidden string) string {
 	if configured != "" {
 		return configured
 	}
@@ -119,8 +119,63 @@ func secret(dir, name, configured, legacy, announce string) string {
 	}
 	t := randomToken()
 	writeSecret(path, []byte(t+"\n"))
-	log.Print(T(announce, "token", t, "path", path))
+	announceSecret(announce, hidden, t, path)
 	return t
+}
+
+// announceSecret shows a new token on a terminal only. Under systemd (or any
+// redirection) stderr is a log that other people and tools read, and a token
+// written there outlives every rotation: the log says where it is kept instead.
+func announceSecret(shown, hidden, token, path string) {
+	if onTerminal(os.Stderr) {
+		log.Print(T(shown, "token", token, "path", path))
+		return
+	}
+	log.Print(T(hidden, "path", path))
+}
+
+func onTerminal(f *os.File) bool {
+	st, err := f.Stat()
+	return err == nil && st.Mode()&os.ModeCharDevice != 0
+}
+
+// tokenCommand runs `posterm token rotate [access|join]` on the hub's data dir,
+// as the user that owns secrets/ (root, on a hub started as root). The new
+// token is printed once, on stdout, and written nowhere else but secrets/. The
+// running hub keeps the old one in memory until it restarts: it can't re-read
+// secrets/ after dropping privileges, by design.
+func tokenCommand(data string, args []string) {
+	if len(args) == 0 || args[0] != "rotate" || len(args) > 2 {
+		log.Fatal(T("cli.token_usage"))
+	}
+	which := "join"
+	if len(args) == 2 {
+		which = args[1]
+	}
+	var name, env, done string
+	switch which {
+	case "join":
+		name, env, done = "join-token", "JOIN_TOKEN", "cli.token_rotated_join"
+	case "access":
+		name, env, done = "token", "TOKEN", "cli.token_rotated_access"
+	default:
+		log.Fatal(T("cli.token_usage"))
+	}
+	if cfg(env) != "" {
+		log.Fatal(T("cli.token_from_env", "var", "POSTERM_"+env))
+	}
+	dir := secretsDir(data)
+	st, err := os.Lstat(dir)
+	if err != nil || !st.IsDir() || int(st.Sys().(*syscall.Stat_t).Uid) != os.Geteuid() {
+		log.Fatal(T("cli.token_not_owner", "dir", dir))
+	}
+	t := randomToken()
+	writeSecret(filepath.Join(dir, name), []byte(t+"\n"))
+	restart := T("cli.token_restart_any")
+	if svc := cfg("SERVICE"); svc != "" {
+		restart = T("cli.token_restart_service", "service", svc)
+	}
+	fmt.Print(T(done, "token", t, "restart", restart))
 }
 
 func randomToken() string {

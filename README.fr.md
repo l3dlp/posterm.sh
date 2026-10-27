@@ -79,9 +79,10 @@ l'ignorer.
 
 ![Déposer sur le bash envoie dans son dossier courant](docs/img/drop.png)
 
-- Glisse des fichiers *ou des dossiers entiers* sur le bash. Ils atterrissent
-  dans **son dossier courant**, là où tu as fait `cd`. La cible s'affiche avant
-  que tu lâches.
+- Glisse des fichiers *ou des dossiers entiers* n'importe où sur le labo, le
+  terminal de l'agent compris. Ils atterrissent dans **le dossier courant du
+  bash**, là où tu as fait `cd`. La cible s'affiche avant que tu lâches ; un
+  bash masqué s'ouvre pour la montrer, et reste ouvert si tu déposes.
 - Les dossiers sont zippés dans le navigateur (deflate ; médias et archives
   stockés tels quels, recompresser des JPEG est une perte de temps pour tout le
   monde), envoyés en un seul flux, décompressés côté serveur. Un `.zip` déposé
@@ -135,6 +136,7 @@ posterm join [url-du-hub]     un rayon : publie les labos de cette machine au hu
 posterm lab <dossier> [cmd…]  lance un labo ici, depuis le shell
 posterm etat <question|pose> [texte…]   depuis un labo : dire où il en est
 posterm spoke add|revoke|list [nom]     sur le hub : un jeton de jonction par machine
+posterm token rotate [join|access]      sur le hub : un nouveau jeton, affiché une seule fois
 ```
 
 ## Démarrer
@@ -182,7 +184,11 @@ bin/build.sh           # gofmt + vet, binaire statique, sauvegarde l'ancien
 ```
 
 Le premier démarrage génère un jeton d'accès et un jeton de jonction pour les
-rayons, les affiche et les garde dans `$POSTERM_DATA/secrets/`. Ouvre la page,
+rayons et les garde dans `$POSTERM_DATA/secrets/`. Sur un terminal il les
+affiche ; sous systemd ou dans toute redirection il n'affiche que leur
+emplacement, car un jeton dans un journal survit à toutes les rotations.
+`posterm token rotate [join|access]` en écrit un neuf, l'affiche une seule fois
+et rappelle de redémarrer le hub, qui garde ses jetons en mémoire. Ouvre la page,
 colle le jeton d'accès, clique **+ labo** : choisis un dossier (avec
 complétion) et une commande (les récentes d'abord).
 
@@ -370,6 +376,9 @@ est fait pour un seul opérateur, et ne prétend pas le contraire.
   connexion.
 - Les connexions ratées sont limitées (cinq par client, trente pour le hub,
   puis `429`).
+- Les jetons ne sont jamais écrits dans un journal : le hub ne les affiche que
+  sur un terminal, et `posterm token rotate` montre le neuf une fois, sur sa
+  propre sortie.
 - Chaque rayon se joint avec son propre jeton (`posterm spoke add <nom>`), qui
   ouvre `/join` pour ce nom et rien d'autre, et `posterm join` refuse de
   l'envoyer en clair à un hub distant.

@@ -607,6 +607,13 @@ func (e *Engine) Handler() http.Handler {
 		}
 		dir, err := e.shellDir(l)
 		if err != nil {
+			// No bash yet (hidden in this browser, or never opened): a drop
+			// still needs a cwd, so start it in the lab's dir.
+			if e.shell(l) == nil {
+				dir, err = e.shellDir(l)
+			}
+		}
+		if err != nil {
 			fail(c, 409, err)
 			return
 		}
