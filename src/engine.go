@@ -160,6 +160,21 @@ func (e *Engine) tmux(args ...string) (string, error) {
 	return string(out), nil
 }
 
+// query reads one format of a session's active pane. tmux 3.5 answers
+// display-message on a missing target with an empty line and exit 0, where
+// older ones fail: the session is checked with has-session first, and an
+// empty answer is an error too.
+func (e *Engine) query(session, format string) (string, error) {
+	if _, err := e.tmux("has-session", "-t", "="+session); err != nil {
+		return "", err
+	}
+	out, err := e.tmux("display-message", "-p", "-t", "="+session+":", format)
+	if out = strings.TrimSpace(out); err == nil && out == "" {
+		err = fmt.Errorf("tmux display-message %s: empty answer", format)
+	}
+	return out, err
+}
+
 func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // start launches the lab command through a login+interactive shell, so that
@@ -190,8 +205,8 @@ func shellID(id string) string { return id + "__sh" }
 // (no remain-on-exit); the next attach starts a fresh one.
 func (e *Engine) shell(l Lab) error {
 	id := shellID(l.ID)
-	if out, err := e.tmux("display-message", "-p", "-t", "="+id+":", "#{pane_dead}"); err == nil {
-		if strings.TrimSpace(out) != "1" {
+	if _, err := e.tmux("has-session", "-t", "="+id); err == nil {
+		if dead, _ := e.query(id, "#{pane_dead}"); dead == "0" {
 			return nil
 		}
 		e.tmux("kill-session", "-t", "="+id)
@@ -829,11 +844,11 @@ func (u *undo) rollback() {
 
 // shellDir is the current directory of the lab's bash (or of whatever runs in it).
 func (e *Engine) shellDir(l Lab) (string, error) {
-	out, err := e.tmux("display-message", "-p", "-t", "="+shellID(l.ID)+":", "#{pane_current_path}")
-	if dir := strings.TrimSpace(out); err == nil && dir != "" {
-		return dir, nil
+	dir, err := e.query(shellID(l.ID), "#{pane_current_path}")
+	if err != nil {
+		return "", E("err.no_shell")
 	}
-	return "", E("err.no_shell")
+	return dir, nil
 }
 
 // dropTTL bounds how long a dir handed out by sh/check stays a valid upload

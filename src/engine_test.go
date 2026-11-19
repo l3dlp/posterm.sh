@@ -127,3 +127,48 @@ func TestCfgFallsBackToPreRenameName(t *testing.T) {
 		t.Errorf("cfgOr = %q, want the default", got)
 	}
 }
+
+// scriptTmux puts a tmux on PATH that logs its arguments to the returned file
+// and then runs body (sh, "$*" is the command line).
+func scriptTmux(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls")
+	script := "#!/bin/sh\necho \"$*\" >>" + shq(log) + "\n" + body + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "tmux"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return log
+}
+
+func TestShellStartsWhenTmuxAnswersEmpty(t *testing.T) {
+	// tmux 3.5: display-message on a missing target prints "" and exits 0.
+	log := scriptTmux(t, `case "$*" in *has-session*) exit 1 ;; *display-message*) echo; exit 0 ;; esac; exit 0`)
+	e := &Engine{data: t.TempDir()}
+	l := Lab{ID: "lab1", Dir: t.TempDir()}
+	if err := e.shell(l); err != nil {
+		t.Fatal(err)
+	}
+	calls, _ := os.ReadFile(log)
+	if !bytes.Contains(calls, []byte("new-session -d -s lab1__sh")) {
+		t.Errorf("no new-session for a missing bash:\n%s", calls)
+	}
+	if _, err := e.shellDir(l); err == nil {
+		t.Error("shellDir found a dir for a missing bash")
+	}
+}
+
+func TestShellKeepsLiveOneRestartsDeadOne(t *testing.T) {
+	for dead, restart := range map[string]bool{"0": false, "1": true} {
+		log := scriptTmux(t, `case "$*" in *display-message*) echo `+dead+` ;; esac; exit 0`)
+		e := &Engine{data: t.TempDir()}
+		if err := e.shell(Lab{ID: "lab1", Dir: t.TempDir()}); err != nil {
+			t.Fatal(err)
+		}
+		calls, _ := os.ReadFile(log)
+		if got := bytes.Contains(calls, []byte("new-session")); got != restart {
+			t.Errorf("pane_dead=%s: new-session %v, want %v:\n%s", dead, got, restart, calls)
+		}
+	}
+}

@@ -130,7 +130,7 @@ func checkSocket(data string, uid int) {
 // tmuxOwner is the uid of the tmux server process behind sock, -1 if unknown.
 func tmuxOwner(sock string) int {
 	out, err := exec.Command("tmux", "-S", sock, "display-message", "-p", "#{pid}").Output()
-	if err != nil {
+	if err != nil || strings.TrimSpace(string(out)) == "" { // empty: /proc/ itself, root's
 		return -1
 	}
 	st, err := os.Stat("/proc/" + strings.TrimSpace(string(out)))
