@@ -91,6 +91,16 @@ l'ignorer.
   envoi annulé ou raté est défait : rien d'écrit. `Alt` + dépôt envoie brut,
   sans zip ni décompression.
 
+**Clique pour récupérer des fichiers**
+
+- Dans le bash, les noms d'un listing `ls -l` (`ll`) sont des liens. Un fichier
+  se télécharge. Un dossier reçoit un `cd '<nom>'` tapé pour toi, `..` compris :
+  `ll`, clic, `ll`, clic, et tu parcours l'arborescence. La ligne en cours est
+  effacée avant, et rien n'est tapé tant qu'un `less` ou un `vim` tient le bash.
+- Les noms sont cherchés dans le dossier courant du bash *au moment du clic* :
+  un clic sur un listing d'avant un `cd` donne une erreur, ou un fichier du
+  même nom.
+
 **Loin du bureau**
 - Installe-le comme une appli (PWA). Une **notification push** part quand un
   labo pose une question ou se pose ; là où le navigateur le permet, elle a un
@@ -412,6 +422,9 @@ est fait pour un seul opérateur, et ne prétend pas le contraire.
   dossier courant du bash, ou un dossier qu'il a lui-même donné pour ce labo
   dans les 15 dernières minutes. Chaque chemin, et chaque entrée de chaque zip,
   est vérifié avant d'écrire le moindre octet.
+- Un téléchargement prend un seul nom, sans `/`, cherché dans le dossier
+  courant du bash, et lu avec les droits des labos : rien qu'un `cat` dans ce
+  bash ne te montrerait déjà. Chaque téléchargement va au journal.
 - Les labos tournent sous l'utilisateur du hub (`POSTERM_USER`). Fais-en un
   utilisateur dédié.
 

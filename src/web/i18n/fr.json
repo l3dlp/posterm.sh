@@ -118,6 +118,7 @@
   "journal.act_delete": "supprimé",
   "journal.act_keys": "a reçu des touches",
   "journal.act_upload": "a reçu des fichiers",
+  "journal.act_download": "a envoyé un fichier",
   "journal.typed": "{n} caractères",
   "journal.by_web": "toi, sur le mur",
   "journal.by_api": "l'API",
@@ -151,6 +152,10 @@
   "err.no_shell": "le bash de ce labo n'est pas ouvert",
   "err.stale_dir": "{dir} n'est pas le dossier de ce bash. Redépose.",
   "err.bad_path": "chemin refusé : {path}",
+  "err.no_entry": "{name} : absent de {dir} (le bash a changé de dossier depuis ce listing ?)",
+  "err.not_file": "{name} : pas un fichier ordinaire, rien à télécharger",
+  "err.unreadable": "{name} : illisible",
+  "err.shell_busy": "{cmd} occupe le bash : quitte-le d'abord, aucun cd tapé",
   "err.no_manifest": "manifeste manquant",
   "err.bad_manifest": "manifeste illisible : {err}",
   "err.missing_file": "fichier manquant : {path}",
@@ -199,5 +204,6 @@
   "sel.md": "télécharger en .md",
   "sel.copied": "copié · {n} caractères",
   "sel.saved": "{file} téléchargé",
-  "sel.copy_failed": "le navigateur refuse la copie (HTTPS requis)"
+  "sel.copy_failed": "le navigateur refuse la copie (HTTPS requis)",
+  "ls.download": "téléchargement de {name} · {size}"
 }

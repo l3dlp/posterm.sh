@@ -321,6 +321,104 @@ selMenu.addEventListener('click', guard(async e => {
   }
 }));
 
+// ---------------------------------------------------------------- ls -l links
+
+// In the bash, the names of an `ls -l` listing are links: a file downloads, a
+// dir gets a `cd` typed into the bash (the server checks it is the shell that
+// has the foreground). Mode, links, owner, group, size, then a date (3 words
+// in most locales, 2 in ISO) ending on a time or a year, then the name, quoted
+// by ls when it must be, and indented by one space when others are quoted.
+const LS_HEAD = /^([-dl])[-rwxsStT]{9}[.+@]?\s+\d+\s+\S+\s+\S+\s+[\d.,]+[KMGTPEZY]?\s+/;
+const LS_TIME = /^(\d{1,2}:\d\d(:\d\d(\.\d+)?)?|\d{4})$/;
+
+function lsEntry(line) {
+  const m = LS_HEAD.exec(line);
+  if (!m) return null;
+  const word = /\S+/g;
+  word.lastIndex = m[0].length;
+  let end = -1;
+  for (let i = 0, w; i < 4 && (w = word.exec(line)); i++) {
+    if (LS_TIME.test(w[0])) { end = word.lastIndex; break; }
+  }
+  if (end < 0) return null;
+  end += /^( [+-]\d{4}(?= ))?/.exec(line.slice(end))[0].length; // full-iso's zone
+  const start = end + /^ +/.exec(line.slice(end))?.[0].length;
+  if (!(start > end) || start >= line.length || line.includes("$'", start)) return null; // $'\n': not worth it
+  const q = unquote(line, start);
+  const rest = q ? line.slice(q.end) : null;
+  if (q && (rest === '' || (m[1] === 'l' && rest.startsWith(' -> ')))) return { start, end: q.end, name: q.name.replace(/(.)\/$/, '$1') };
+  // ls not on a tty prints names raw: the name is the rest, up to a link's arrow
+  const arrow = m[1] === 'l' ? line.indexOf(' -> ', start) : -1;
+  const stop = arrow > 0 ? arrow : line.length;
+  return { start, end: stop, name: line.slice(start, stop) };
+}
+
+// unquote reads one shell word from s at i: '…', "…" and \x.
+function unquote(s, i) {
+  let name = '';
+  while (i < s.length && s[i] !== ' ') {
+    const c = s[i];
+    if (c === "'") {
+      const j = s.indexOf("'", i + 1);
+      if (j < 0) return null;
+      name += s.slice(i + 1, j);
+      i = j + 1;
+    } else if (c === '"') {
+      let j = i + 1;
+      for (; j < s.length && s[j] !== '"'; j++) {
+        if (s[j] === '\\' && '"\\$`'.includes(s[j + 1])) j++;
+        name += s[j];
+      }
+      if (j >= s.length) return null;
+      i = j + 1;
+    } else if (c === '\\') {
+      name += s[i + 1] ?? '';
+      i += 2;
+    } else {
+      name += c;
+      i++;
+    }
+  }
+  return name ? { name, end: i } : null;
+}
+
+function lsLinks(t) {
+  t.registerLinkProvider({
+    provideLinks(y, done) {
+      const row = t.buffer.active.getLine(y - 1);
+      if (!row) return done(undefined);
+      let text = '';
+      const col = []; // string index → cell (wide chars take two cells)
+      for (let x = 0; x < row.length; x++) {
+        const c = row.getCell(x);
+        if (!c || !c.getWidth()) continue;
+        const ch = c.getChars() || ' ';
+        for (let k = 0; k < ch.length; k++) col.push(x);
+        text += ch;
+      }
+      const e = lsEntry(text.trimEnd());
+      if (!e) return done(undefined);
+      done([{
+        text: e.name,
+        range: { start: { x: col[e.start] + 1, y }, end: { x: col[e.end - 1] + 1, y } },
+        decorations: { underline: true, pointerCursor: true },
+        activate: () => guard(openEntry)(cur, e.name),
+      }]);
+    },
+  });
+}
+
+async function openEntry(key, name) {
+  if (!key) return;
+  const r = await api(path(key, '/sh/open'), { name });
+  if (r.kind !== 'file') return shTerm?.focus(); // a dir: the cd shows in the bash
+  const a = el('a');
+  a.href = `${path(key, '/sh/file')}?name=${encodeURIComponent(name)}`;
+  a.download = name;
+  a.click();
+  toast(t('ls.download', { name, size: sizeOf(r.size) }));
+}
+
 // copyText needs the click that called it (user activation); the async
 // clipboard API only exists on HTTPS or localhost, execCommand is the fallback.
 async function copyText(text) {
@@ -399,7 +497,10 @@ function attachShell() {
   detachShell();
   paintShell();
   if (!shellOn()) return;
-  if (!shTerm) [shTerm, shFit] = newTerm($('#shell-term'), () => shSock);
+  if (!shTerm) {
+    [shTerm, shFit] = newTerm($('#shell-term'), () => shSock);
+    lsLinks(shTerm);
+  }
   $('#shell-veil').hidden = true;
   shTerm.reset();
   shFit.fit();
@@ -939,7 +1040,7 @@ for (const b of document.querySelectorAll('[data-close]')) b.addEventListener('c
 
 const VERB = Object.fromEntries(['question', 'pose', 'eteint'].map(s => [s, t(`journal.${s}`)]));
 // What the operator did (journaled by the hub): never counted as news.
-const ACT = Object.fromEntries(['create', 'start', 'stop', 'delete', 'keys', 'upload'].map(a => [a, t(`journal.act_${a}`)]));
+const ACT = Object.fromEntries(['create', 'start', 'stop', 'delete', 'keys', 'upload', 'download'].map(a => [a, t(`journal.act_${a}`)]));
 
 // inbox counts what happened since the journal was last opened.
 async function inbox() {

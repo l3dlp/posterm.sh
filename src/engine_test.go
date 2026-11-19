@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -128,6 +129,43 @@ func TestCfgFallsBackToPreRenameName(t *testing.T) {
 	}
 }
 
+func TestShellName(t *testing.T) {
+	for _, ok := range []string{"a.txt", "a b.txt", "l'été.md", ".", "..", ".hidden", "-rf"} {
+		if !shellName(ok) {
+			t.Errorf("%q refused", ok)
+		}
+	}
+	for _, bad := range []string{"", "/etc/passwd", "../x", "a/b", "x\x00"} {
+		if shellName(bad) {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestIsShell(t *testing.T) {
+	for _, cmd := range []string{"bash", "-bash", "zsh", "fish\n"} {
+		if !isShell(cmd) {
+			t.Errorf("%q is a shell", cmd)
+		}
+	}
+	for _, cmd := range []string{"less", "vim", "tail", "claude", ""} {
+		if isShell(cmd) {
+			t.Errorf("%q is not a shell", cmd)
+		}
+	}
+}
+
+func TestDescribeDownload(t *testing.T) {
+	r := httptest.NewRequest("GET", "/api/labs/lab1/sh/file?name=a+b.txt", nil)
+	ev, ok := describe(r, "/api/labs/lab1/sh/file")
+	if !ok || ev.Act != "download" || ev.ID != "lab1" || ev.Text != "a b.txt" {
+		t.Errorf("describe = %+v, %v", ev, ok)
+	}
+	if _, ok := describe(httptest.NewRequest("GET", "/api/labs/lab1/sh", nil), "/api/labs/lab1/sh"); ok {
+		t.Error("opening the bash got journaled")
+	}
+}
+
 // scriptTmux puts a tmux on PATH that logs its arguments to the returned file
 // and then runs body (sh, "$*" is the command line).
 func scriptTmux(t *testing.T, body string) string {
@@ -156,6 +194,9 @@ func TestShellStartsWhenTmuxAnswersEmpty(t *testing.T) {
 	}
 	if _, err := e.shellDir(l); err == nil {
 		t.Error("shellDir found a dir for a missing bash")
+	}
+	if err := e.cd(l, "x"); err == nil || bytes.Contains(calls, []byte("send-keys -t =lab1__sh: -l cd")) {
+		t.Errorf("cd typed into a missing bash (err %v)", err)
 	}
 }
 

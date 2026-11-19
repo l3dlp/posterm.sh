@@ -26,6 +26,7 @@ aspirational: every claim maps to code you can read in an afternoon, under
 - [Push, with a Reply field](#push-with-a-reply-field)
 - [A bash under every lab](#a-bash-under-every-lab)
 - [Uploads land whole or not at all](#uploads-land-whole-or-not-at-all)
+- [ls -l names are links](#ls--l-names-are-links)
 - [Selection goes through OSC 52](#selection-goes-through-osc-52)
 - [One dictionary per language, everywhere](#one-dictionary-per-language-everywhere)
 - [Dropping privileges before tmux](#dropping-privileges-before-tmux)
@@ -520,6 +521,31 @@ destination is the whole feature.
 entries (use `Alt` + drop beyond that). A file overwritten after your "yes"
 can't be restored by a rollback. Reverse proxies often cap request bodies:
 lift the cap for the upload route only (`docs/caddy.md`).
+
+## ls -l names are links
+
+**The choice.** In the bash, the page recognises the lines of an `ls -l`
+listing (mode, links, owner, group, size, a date ending on a time or a year,
+then the name, unquoted the way `ls` quotes it) and makes the name a link.
+A click asks `POST …/sh/open` about that name: a file comes back as a file and
+the browser fetches it from `GET …/sh/file`; a dir gets `End`, `Ctrl-U`, then
+`cd '<name>'` typed into the bash by tmux. Both resolve the name in the bash's
+cwd at click time, take a single name (no `/`, `.` and `..` allowed) and
+follow symlinks. Nothing is typed unless `#{pane_current_command}` is a shell.
+Downloads are journaled; the `cd` is not, like any keystroke in the bash.
+
+**Why.** Dropping files on the bash had no way back. Reading the screen needs
+nothing from the shell, the locale or the `ls` options beyond `-l`.
+
+**What we refused.** OSC 8 hyperlinks (`ls --hyperlink`): tmux only passes
+them from 3.4, older ones drop them, and they would need an alias in the
+user's rc. Asking the server for the listing: the screen already has it.
+Changing directory server-side: the bash's cwd is its own, and a `cd` typed
+like the user would type it is visible and stays in the history.
+
+**The cost.** A listing from before a `cd` resolves in the new dir: an error,
+or a file of the same name. Names `ls` prints as `$'…'` (control chars) get
+no link. A line wrapped by a narrow terminal is only a link on its first row.
 
 ## Selection goes through OSC 52
 

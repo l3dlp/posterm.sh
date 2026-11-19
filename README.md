@@ -80,6 +80,15 @@ The color tells you whether it needs you. Nothing else on the screen matters.
   an aborted or failed upload rolls back: nothing written. `Alt` + drop sends
   raw, no zip, no unpacking.
 
+**Click to take files back**
+
+- In the bash, the names of an `ls -l` listing (`ll`) are links. A file
+  downloads. A dir gets `cd '<name>'` typed for you, `..` included, so `ll`,
+  click, `ll`, click walks the tree. The line you were typing is wiped first,
+  and nothing is typed while a `less` or a `vim` holds the bash.
+- Names resolve in the bash's cwd *at click time*: click a listing from before
+  a `cd` and you get an error, or a file of the same name.
+
 **Away from the desk**
 - Install it as an app (PWA). **Web Push** fires when a lab asks something or
   settles; where the browser allows it, the notification has a **Reply** field
@@ -379,6 +388,9 @@ built for one operator, and it doesn't pretend otherwise.
   bash's cwd, or a dir it handed out for that lab in the last 15 minutes.
   Every path, and every entry of every zip, is checked before a single byte is
   written.
+- Downloads take one name, no `/`, resolved in the bash's cwd, and read with
+  the labs' rights: nothing a `cat` in that bash couldn't already show you.
+  Every download goes in the journal.
 - Labs run as the hub's user (`POSTERM_USER`). Make it a dedicated one.
 
 ## Roadmap

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"os/exec"
@@ -665,7 +666,109 @@ func (e *Engine) Handler() http.Handler {
 		}
 		c.JSON(200, gin.H{"dir": dir, "files": n, "bytes": size})
 	})
+
+	// A click on a name in an `ls -l` listing of the bash. open cds into a dir
+	// (typed into the bash, as the user would) and says a file is a file; file
+	// then sends it. Both resolve the name in the bash's cwd at that moment.
+	r.POST("/api/labs/:id/sh/open", func(c *gin.Context) {
+		l, ok := lab(c)
+		if !ok {
+			return
+		}
+		var in struct{ Name string }
+		if err := c.BindJSON(&in); err != nil {
+			return
+		}
+		p, st, err := e.shellEntry(l, in.Name)
+		if err != nil {
+			fail(c, 400, err)
+			return
+		}
+		switch {
+		case st.IsDir():
+			if err := e.cd(l, in.Name); err != nil {
+				fail(c, 409, err)
+				return
+			}
+			c.JSON(200, gin.H{"kind": "dir", "path": p})
+		case st.Mode().IsRegular():
+			c.JSON(200, gin.H{"kind": "file", "path": p, "size": st.Size()})
+		default:
+			fail(c, 400, E("err.not_file", "name", in.Name))
+		}
+	})
+
+	r.GET("/api/labs/:id/sh/file", func(c *gin.Context) {
+		l, ok := lab(c)
+		if !ok {
+			return
+		}
+		name := c.Query("name")
+		p, st, err := e.shellEntry(l, name)
+		if err == nil && !st.Mode().IsRegular() {
+			err = E("err.not_file", "name", name)
+		}
+		if err != nil {
+			fail(c, 400, err)
+			return
+		}
+		f, err := os.Open(p)
+		if err != nil {
+			fail(c, 403, E("err.unreadable", "name", name))
+			return
+		}
+		defer f.Close()
+		c.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+		c.Header("Content-Type", "application/octet-stream")
+		http.ServeContent(c.Writer, c.Request, name, st.ModTime(), f)
+	})
 	return r
+}
+
+// shellName: a name as `ls` prints it, one entry of the bash's cwd (or . and ..).
+func shellName(name string) bool {
+	return name != "" && !strings.ContainsAny(name, "/\x00")
+}
+
+// shellEntry finds name in the bash's current directory, following symlinks.
+func (e *Engine) shellEntry(l Lab, name string) (string, os.FileInfo, error) {
+	if !shellName(name) {
+		return "", nil, E("err.bad_path", "path", strconv.Quote(name))
+	}
+	dir, err := e.shellDir(l)
+	if err != nil {
+		return "", nil, err
+	}
+	p := filepath.Join(dir, name)
+	st, err := os.Stat(p)
+	if err != nil {
+		return "", nil, E("err.no_entry", "name", name, "dir", dir)
+	}
+	return p, st, nil
+}
+
+// shells are what may sit in the bash's foreground for a click to type a cd.
+var shells = map[string]bool{"bash": true, "zsh": true, "sh": true, "dash": true, "ksh": true, "mksh": true, "fish": true}
+
+func isShell(cmd string) bool { return shells[strings.TrimPrefix(strings.TrimSpace(cmd), "-")] }
+
+// cd types `cd <name>` into the lab's bash, over whatever was half-typed
+// (End, then Ctrl-U wipes the line). Only when the shell itself has the
+// foreground: keys sent to a less or a vim would do anything.
+func (e *Engine) cd(l Lab, name string) error {
+	target := "=" + shellID(l.ID) + ":"
+	cmd, err := e.query(shellID(l.ID), "#{pane_current_command}")
+	if err != nil {
+		return E("err.no_shell")
+	}
+	if !isShell(cmd) {
+		return E("err.shell_busy", "cmd", cmd)
+	}
+	if _, err := e.tmux("send-keys", "-t", target, "End", "C-u"); err != nil {
+		return err
+	}
+	_, err = e.tmux("send-keys", "-t", target, "-l", "cd "+shq(name)+"\r")
+	return err
 }
 
 // unpack extracts the zip read from r into target. archive/zip needs to seek,

@@ -118,6 +118,7 @@
   "journal.act_delete": "deleted",
   "journal.act_keys": "got keys",
   "journal.act_upload": "got files",
+  "journal.act_download": "sent a file",
   "journal.typed": "{n} chars",
   "journal.by_web": "you, on the wall",
   "journal.by_api": "the API",
@@ -151,6 +152,10 @@
   "err.no_shell": "that lab's bash isn't running. Open it first.",
   "err.stale_dir": "{dir} is not where that bash is. Drop again.",
   "err.bad_path": "path refused: {path}",
+  "err.no_entry": "{name}: not in {dir} (the bash moved since that listing?)",
+  "err.not_file": "{name}: not a regular file, nothing to download",
+  "err.unreadable": "{name}: can't read it",
+  "err.shell_busy": "{cmd} has the bash's foreground: quit it first, no cd typed",
   "err.no_manifest": "no manifest",
   "err.bad_manifest": "broken manifest: {err}",
   "err.missing_file": "missing file: {path}",
@@ -199,5 +204,6 @@
   "sel.md": "save as .md",
   "sel.copied": "copied · {n} chars",
   "sel.saved": "{file} saved",
-  "sel.copy_failed": "browser refused the copy (needs HTTPS)"
+  "sel.copy_failed": "browser refused the copy (needs HTTPS)",
+  "ls.download": "downloading {name} · {size}"
 }

@@ -152,6 +152,8 @@ func describe(r *http.Request, path string) (Event, bool) {
 		return Event{ID: orDash(spokeName(name)), Name: name, Act: "create", Text: text}, true
 	case r.Method == http.MethodDelete && len(parts) == 3:
 		return Event{ID: parts[2], Name: parts[2], Act: "delete"}, true
+	case r.Method == http.MethodGet && len(parts) == 5 && parts[3] == "sh" && parts[4] == "file":
+		return Event{ID: parts[2], Name: parts[2], Act: "download", Text: r.URL.Query().Get("name")}, true
 	case r.Method != http.MethodPost || len(parts) < 4:
 		return Event{}, false
 	}
